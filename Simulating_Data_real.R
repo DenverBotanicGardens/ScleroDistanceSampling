@@ -146,11 +146,7 @@ summaryoutp<-do.call(rbind,lapply(seq(6,8, by=2), function(x){
 }))
 
 #write.csv(summaryoutp,"~/Documents/Regis/R /Externship/Picnic/Picnicsummary2.csv")
-
-originalscaleandshape<- summaryoutp
-
-plot(x=summaryoutp$Mean.Effort, y=summaryoutp$Mean.Abundance.SD)
-text(y=summaryoutp$Mean.Abundance.SD, x=summaryoutp$Mean.Effort, summaryoutp$spacing, pos=4)
+#ran this simulation on different computer, ignore above
 
 
 krent<- data.frame("habitat area"=c(40542,17450,9069.5,10429.7,51420.3,14298.1,24078.8,14951.9,3038.4,17827.9,17840.2,
@@ -180,7 +176,7 @@ krent2<-data.frame(" "=c("Krening", "Picnic", "Lower Confidence Interval for Pic
                    "Estimated Density"=c(0.0061,0.0633,0.0418,0.0959), "Estimated Abundance"
                    = c(103086,2719503,2209596,3348388))
 
-#EFFORT#
+####################EFFORT##########################
 
 Tjunc<- read.csv("Tjuncsummary2.csv")
 Picnic<- read.csv("psummary2.csv")
@@ -198,6 +194,8 @@ text(y=Tjunc$Mean.Abundance.SD, x=Tjunc$Mean.Area.Covered, Tjunc$spacing, pos=3,
 text(y=Picnic$Mean.Abundance.SD, x=Picnic$Mean.Area.Covered, Picnic$spacing, pos=3, col="green")
 abline(lm(Tjunc$Mean.Abundance.SD~Tjunc$Mean.Area.Covered))
 
+
+#GG
 ggplot(both, aes(y=Mean.Abundance.SD, x=Mean.Area.Covered, color=Site)) +
   geom_point()+
   scale_color_manual(values=c("blue","dark blue"))+
