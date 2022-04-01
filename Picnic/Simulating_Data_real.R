@@ -198,7 +198,7 @@ abline(lm(Tjunc$Mean.Abundance.SD~Tjunc$Mean.Area.Covered))
 #GG
 ggplot(both, aes(y=Mean.Abundance.SD, x=Mean.Area.Covered, color=Site)) +
   geom_point()+
-  scale_color_manual(values=c("blue","dark blue"))+
+  scale_color_manual(values=c("blue","dark green"))+
   ylim(30, 190)+
   xlim(1800,17000)+
   geom_text(aes(label=spacing),hjust=-.5, vjust=-.5, show.legend = F)+

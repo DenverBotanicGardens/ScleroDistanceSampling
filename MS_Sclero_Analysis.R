@@ -96,11 +96,11 @@ m.half <- distsamp(~1 ~1, umf, keyfun="halfnorm", output="density", unitsOut="km
 m.haz <- distsamp(~1 ~1, umf, keyfun="hazard", output="density", unitsOut="kmsq")
 
 m.uni <- distsamp(~1 ~1, umf, keyfun="uniform", output="density", unitsOut="kmsq")
-#M.HALF AIC = 1003.13
+#M.HALF AIC =
 m.half
-#m.haz AIC = 942.5986
+#m.haz AIC = 
 m.haz
-#m.uni AIC = 1323.66
+#m.uni AIC = 
 m.uni
 library(MuMIn)
 model.sel(m.half,m.haz,m.uni)
@@ -111,8 +111,8 @@ m.haz.1.cover2 <- distsamp(~Cover ~1, umf, keyfun="hazard", output="density", un
 m.haz.1.cover3 <- distsamp(~Cover ~Cover, umf, keyfun="hazard", output="density", unitsOut="kmsq") 
 #used 0 here as a start value for cover, 0 behaves the same as -1 and 0.5, they all give the same answer.
 m.haz.1.cover #improves here
-model.sel(m.haz,m.haz.1.cover,m.haz.1.cover2,m.haz.1.cover3)
-
+here<- data.frame(model.sel(m.haz,m.haz.1.cover,m.haz.1.cover2,m.haz.1.cover3, m.uni,m.half))
+here$delta
 
 #BEST
 m.haz.1.cover
@@ -126,9 +126,11 @@ exp(-1.655486)
 #when cover is 0.17
 lcP <- linearComb(m.haz.1.cover, c(1, 0.176), type="state") 
 lcP<-backTransform(lcP)
+lcP
 #when cover is 0.481
 lcJ <- linearComb(m.haz.1.cover, c(1, 0.481), type="state") 
 lcJ<-backTransform(lcJ)
+lcJ
 
 #THIS IS THE SCALE
 backTransform(m.haz.1.cover, type="det")
@@ -166,16 +168,18 @@ Elambda <- predict(m.haz.1.cover, type="state", newdata=habConstant,appendData=T
 
 #DENSITY DECREASING WITH COVER
 pdf("Plant Cover.pdf", width=6, height=5)
-with(Elambda, {x <- barplot(Predicted/1000000, names= Cover*100, xlab="Plant Cover (%)",
-                            ylab=expression("Density (plants / m^2)"), ylim=c(0, .38), cex.names=.8,cex.lab=1.5, cex.axis=1)
+with(Elambda, {x <- barplot(Predicted/1000000, names= Cover*100, xlab="",
+                            ylab="", ylim=c(0, .38), cex.names=1,cex.lab=1.5, cex.axis=1)
 box()
-legend('topright', c("Density at Picnic", "Density at T-junction"),col=c("blue", "dark blue"), lty=2, cex=1, lwd=2)
+legend('topright', c("Density at Picnic", "Density at T-junction"),col=c("blue", "dark green"), lty=2, cex=1, lwd=2)
 abline(h= .158853,col="blue",lwd=3,lty=2)
-abline(h= .063303, col= "dark blue", lwd=3,lty=2)
-abline(h= 0.0418, col= "dark blue", lwd=2,lty=3)
-abline(h= 0.0959, col= "dark blue", lwd=2,lty=3)
+abline(h= .063303, col= "dark green", lwd=3,lty=2)
+abline(h= 0.0418, col= "dark green", lwd=2,lty=3)
+abline(h= 0.0959, col= "dark green", lwd=2,lty=3)
 abline(h= 0.130,col="blue",lwd=2,lty=3)
 abline(h= 0.197,col="blue",lwd=2,lty=3)
+title(ylab="Density (plants / m^2)", line=2.4, cex.lab=1.2)
+title(xlab="Plant Cover (%)", line=2.4, cex.lab=1.2)
 })
 dev.off()
 
