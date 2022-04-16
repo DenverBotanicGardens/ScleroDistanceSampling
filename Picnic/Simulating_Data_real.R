@@ -154,11 +154,14 @@ krent<- data.frame("habitat area"=c(40542,17450,9069.5,10429.7,51420.3,14298.1,2
                                                                                      500,420,480,800,216,900,600), "quadrat area"
                           =c(55,100,28,28,40,48,100,32,60,50,42,40,100,18,75,60), "N"= c(18,20,20,14,18,20,14,10,12,10,10,12,
                                                                                          8,12,12,10), "n" = c(8,10,9,6,8,11,7,
-                                                                                                              5,6,7,5,6,5,8,7,5))
+               
+                                                                                                                                                                                                             5,6,7,5,6,5,8,7,5))
 propofmacro<-mean(krent$macroplot.area/krent$habitat.area)
 propofquadarea<- krent$quadrat.area/krent$habitat.area
 
 sum(krent$macroplot.area)/ sum(krent$habitat.area)
+
+sum(krent$habitat.area)
 
 
 
@@ -196,13 +199,13 @@ abline(lm(Tjunc$Mean.Abundance.SD~Tjunc$Mean.Area.Covered))
 
 
 #GG
-ggplot(both, aes(y=Mean.Abundance.SD, x=Mean.Area.Covered, color=Site)) +
+ggplot(both, aes(y=(Mean.Abundance.SD/Mean.Abundance.Estimate), x=Mean.Area.Covered, color=Site)) +
   geom_point()+
   scale_color_manual(values=c("blue","dark green"))+
-  ylim(30, 190)+
+  ylim(0, 0.5)+
   xlim(1800,17000)+
   geom_text(aes(label=spacing),hjust=-.5, vjust=-.5, show.legend = F)+
-  ylab("SD of Abundance Estimate")+
+  ylab("CV of Abundance Estimate")+
   xlab(expression("Area Covered by Sampling Effort " (~m^2)))+
   geom_smooth(method = "lm", formula = y ~ poly(x, 3), se = FALSE)
 

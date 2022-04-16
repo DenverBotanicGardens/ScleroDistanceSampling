@@ -25,10 +25,16 @@ nrow(DSdata[DSdata$Site=="T-Junction",])
 #Picnic n=159
 nrow(DSdata[DSdata$Site=="Picnic",])
 
+sum(DSdata$Length)
+
 #add unique identifier
 DSdata$trans <- paste(DSdata$Site,DSdata$Line, sep = ".")
 # We're adding more same plot and same transect number so paste the date on too for a unique Transect identifier
 DSdata$trans <- paste(DSdata$trans, DSdata$Date, sep = ".")
+
+
+t.test(Height~Site, DSdata)
+t.test(Width~Site, DSdata)
 
 
 ################################################# COMBINED DATA SET ##################################################
@@ -119,6 +125,20 @@ m.haz.1.cover
 exp(-4.418716)
 exp(-1.655486)
 
+#USING SITE AS A COVARIATE
+m.haz.1.site <- distsamp(~1 ~Site, umf, keyfun="hazard", output="density", unitsOut="kmsq") 
+m.haz.1.site2 <- distsamp(~Site ~1, umf, keyfun="hazard", output="density", unitsOut="kmsq") 
+m.haz.1.site3 <- distsamp(~Site ~Site, umf, keyfun="hazard", output="density", unitsOut="kmsq") 
+m.haz.1.site #improves here
+here<- data.frame(model.sel(m.haz,m.haz.1.cover,m.haz.1.cover2,m.haz.1.cover3, m.uni,m.half))
+here$delta
+
+library(MuMIn)
+model.sel(m.haz,m.haz.1.site,m.haz.1.site2,m.haz.1.site3)
+model.sel(m.haz,m.uni,m.half)
+
+exp(((confint(m.half, type="state"))))
+
 
 ##################################################  RESULTS  ##########################################################
 
@@ -136,6 +156,14 @@ lcJ
 backTransform(m.haz.1.cover, type="det")
 #THIS IS THE SHAPE
 backTransform(m.haz.1.cover, type="scale")
+
+##SITE##
+exp(11.983) #PICNIC = 160011.3
+exp(11.983+(-0.928))
+#THIS IS THE SCALE
+backTransform(m.haz.1.site, type="det")
+#THIS IS THE SHAPE
+backTransform(m.haz.1.site, type="scale")
 
 #CI's
 #scale
@@ -167,11 +195,11 @@ Elambda <- predict(m.haz.1.cover, type="state", newdata=habConstant,appendData=T
 
 
 #DENSITY DECREASING WITH COVER
-pdf("Plant Cover.pdf", width=6, height=5)
+pdf("Plant Cover.pdf", width=6, height=4)
 with(Elambda, {x <- barplot(Predicted/1000000, names= Cover*100, xlab="",
                             ylab="", ylim=c(0, .38), cex.names=1,cex.lab=1.5, cex.axis=1)
 box()
-legend('topright', c("Density at Picnic", "Density at T-junction"),col=c("blue", "dark green"), lty=2, cex=1, lwd=2)
+legend('topright', c("Density at Picnic", "Density at T-Junction"),col=c("blue", "dark green"), lty=2, cex=1, lwd=2)
 abline(h= .158853,col="blue",lwd=3,lty=2)
 abline(h= .063303, col= "dark green", lwd=3,lty=2)
 abline(h= 0.0418, col= "dark green", lwd=2,lty=3)
@@ -251,9 +279,9 @@ N.hat <- sum(site.level.abundance)
 
 
 #DETECTION PROB
-jpeg("Detection Probability.jpeg", quality=100, res=150)
-plot(function(x) gxhaz(x, shape=2.58, scale=1.16), 0, 6, xlab="Distance (m)",ylab="Detection Probability", cex.lab=0.7,
-     cex.axis=0.7, las=1,lwd=2)
+pdf("detection.pdf", width=4, height=5)
+plot(function(x) gxhaz(x, shape=2.58, scale=1.16), 0, 6, xlab="Distance (m)",ylab="Detection Probability", cex.lab=1,
+     cex.axis=1.2, las=1,lwd=2)
 dev.off()
 
 ggsave("Detection Probability.jpg",plot=dp, width=8,height=6,units=c('cm'),dpi= 300)
@@ -261,14 +289,43 @@ ggsave("Detection Probability.jpg",plot=dp, width=8,height=6,units=c('cm'),dpi= 
 
 apply(DSdata[4:8],2,range)
 
+pdf("counts.pdf", width=5, height=5)
+ggplot(DS.trunc, aes(Dist, fill =  Site))+
+  geom_histogram(bins=24)+
+  facet_wrap(~Site)+
+  theme_bw()+
+  scale_fill_manual(values = c("blue","dark green"))+
+  xlab("Distance")+
+  ylab("Number of Detected Individuals")+
+  theme(legend.position="none")
+dev.off()
 
 
+ptotalpop<- 159853*pareakm #1247.27 individuals
+##ABUNDANCES OF OTHER MODEL
+#m.haz.1.site2
+exp(11.8)
+133252.4*pareakm+133252.4*tareakm
+exp(confint(m.haz.1.site2, type="state"))
+((111346.8*pareakm)+(111346.8*tareakm))
+((168640.7*pareakm)+(168640.7*tareakm))
+#m.haz.1.site3
+m.haz.1.site3
+(exp(11.978))*pareakm
+exp(11.978-0.0249)*tareakm
 
+confint(m.haz.1.site3, type="state")
+exp(11.760246)*pareakm
+exp(12.1967063)*pareakm
+exp(11.760246-1.454224 )*tareakm
+exp(12.1967063-0.3532933)*tareakm
 
-
-
-
-
+#m.haz
+m.haz
+(exp(11.8)*pareakm)+(exp(11.8)*tareakm)
+exp(confint(m.haz, type="state"))
+((108446.8*pareakm)+(108446.8*tareakm))
+((161595*pareakm)+(161595*tareakm))
 
 ######################################## SPLIT DATA INTO REPRODUCTIVE AND NON ##########################################
 
