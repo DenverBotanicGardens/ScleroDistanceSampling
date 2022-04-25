@@ -197,6 +197,7 @@ text(y=Tjunc$Mean.Abundance.SD, x=Tjunc$Mean.Area.Covered, Tjunc$spacing, pos=3,
 text(y=Picnic$Mean.Abundance.SD, x=Picnic$Mean.Area.Covered, Picnic$spacing, pos=3, col="green")
 abline(lm(Tjunc$Mean.Abundance.SD~Tjunc$Mean.Area.Covered))
 
+both$CV<- both$Mean.Abundance.SD/both$Mean.Abundance.Estimate
 
 #GG
 ggplot(both, aes(y=(Mean.Abundance.SD/Mean.Abundance.Estimate), x=Mean.Area.Covered, color=Site)) +
