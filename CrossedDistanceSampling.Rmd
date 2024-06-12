@@ -15,21 +15,26 @@ library(ggplot2)
 ```
 
 
+Data from survey123      
+https://researchdbg.maps.arcgis.com/home/item.html?id=56f4fbec07d94faeafe87b1e1503f459      
+and     
+https://researchdbg.maps.arcgis.com/home/item.html?id=db53858aae2f47a2bd8ac09366540b25       
 ```{r}
-ds2024 <- read.csv("C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/Data/plantData_1.csv")
-
-head(ds2024)
+ds2024 <- read.csv("https://raw.githubusercontent.com/DenverBotanicGardens/ScleroDistanceSampling/main/Data/plantData_1.csv")
 nrow(ds2024) ## 1478 plants
 
-dstrans <- read.csv("C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/Data/transect_2.csv")
-
-head(dstrans)
+dstrans <- read.csv("https://raw.githubusercontent.com/DenverBotanicGardens/ScleroDistanceSampling/main/Data/transect_2.csv")
 nrow(dstrans) # 35 line transects
 
 ## Transect.meter.mark and direction to group, and distance to group. x, y were GPS point 
-ds_One <- read.csv("C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/Data/distanceSampling_1.csv")
+ds_One <- read.csv("https://raw.githubusercontent.com/DenverBotanicGardens/ScleroDistanceSampling/main/Data/distanceSampling_1.csv")
 
-head(ds_One)
+## Dataframe with date, recorded by, distance between transects, x, y
+ds_zero <- read.csv("https://raw.githubusercontent.com/DenverBotanicGardens/ScleroDistanceSampling/main/Data/Sclerocactus_glaucus_Distance_Sampling_0.csv")
+nrow(ds_zero) # 25 transect starts?
+
+ds_demographic <- read.csv("https://raw.githubusercontent.com/DenverBotanicGardens/ScleroDistanceSampling/main/Data/Sclerocactus_glaucus_DemographicMonitoring_0.csv")
+nrow(ds_demographic) # 79 transects with x,y
 
 
 ```
@@ -73,7 +78,36 @@ mapview(  xcol = 'x', ycol = 'y', crs = 4269, grid = FALSE,
           labelOptions = labelOptions(noHide = TRUE, textOnly = TRUE))
 
 
+## map transects from survey123 
+ds_zero$site[is.na(ds_zero$site)] <- 11
+ds_zero %>%
+  rename(x_trans = x) %>%
+  rename(y_trans = y) %>%
+  left_join(ds_One, by = c("GlobalID" = "GlobalID")) %>%
+  mutate(site = as.factor(site)) %>%
+  left_join(siteIDs, by = c("site" = "SiteID")) %>%
+  mapview(  xcol = 'x', ycol = 'y', crs = 4269, grid = FALSE,
+            zcol = 'SiteName',
+          label = ds_One$SiteName[ds_One$x != 0],
+          labelOptions = labelOptions(noHide = TRUE, textOnly = TRUE))
+
+## Demographic transects
+ds_demographic %>%
+  mutate(transect = as.factor(transect),
+         site = as.factor(site)) %>%
+  mapview(  xcol = 'x', ycol = 'y', crs = 4269, grid = FALSE,
+            zcol = 'site',
+          label = ds_demographic$transect,
+          labelOptions = labelOptions(noHide = TRUE, textOnly = TRUE))
 ```
+
+
+
+
+
+
+
+
 
 
 
