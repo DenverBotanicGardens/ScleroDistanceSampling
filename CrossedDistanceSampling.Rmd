@@ -1,0 +1,97 @@
+---
+title: "Distance sampling"
+author: "Michelle DePrenger-Levin"
+date: "2024-05-22"
+output: html_document
+---
+
+```{r}
+
+rm(list=ls()) 
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+
+```{r}
+ds2023 <- read.csv("C:/Users/deprengm/Denver Botanic Gardens/Conservation - General/AllProjectsBySpecies/Sclerocactus-glaucus/Sclerocactus-glaucus_Projects/2024_Sclerocactus-glaucus_distancesampling/JONATHAN TEST S123_2024_distanceSampling_ScGl/distanceSampling_1.csv")
+
+head(ds2023)
+
+trans2023 <- read.csv("C:/Users/deprengm/Denver Botanic Gardens/Conservation - General/AllProjectsBySpecies/Sclerocactus-glaucus/Sclerocactus-glaucus_Projects/2024_Sclerocactus-glaucus_distancesampling/JONATHAN TEST S123_2024_distanceSampling_ScGl/transect_2.csv")
+
+head(trans2023)
+
+scds <- ds2023 %>%
+  left_join(trans2023, by = c("ParentGlobalID", "GlobalID"))
+head(scds)
+colSums(table(scds$GlobalID, scds$ParentGlobalID))
+rowSums(table(scds$GlobalID, scds$ParentGlobalID))
+
+## We did a second observation of transect 2 and called it 21. 
+table(scds$siteName, scds$transectNumber_, scds$transectOrientation)
+
+## the NS,EW has no data, a mistake to remove. 
+scds %>%
+  filter(Distance.To.Group > 6) 
+## Typos, could drop, or could make best judgement to QC. 
+
+## Typo needs help
+scds %>%
+  filter(Transect.Meter.Mark > 100)
+
+scds %>%
+  dplyr::select(x:X.3)
+
+
+
+## Check and fix transect lengths when we didn't measure to the full tape length
+
+```
+
+
+Mark-recapture to get detection on the line
+```{r}
+## Site 11 is Oil Pad and is bad
+## Sites 1 and 3 are the same
+scds$siteName[scds$siteName == 3] <- 1
+table(scds$siteName, scds$transectNumber_, scds$transectOrientation)
+
+### Need all the increments of 10 (or spacing) to meet to have the 3x3 meter crossed design
+
+## we want +/- from each transect, but need match up the appropriate crossing
+crossed <- scds %>%
+  filter(Distance.To.Group <= 3)
+
+
+### Only Fram does the transect number match the meter mark (increment of 10meters)
+cx <- lapply(split(scds, scds$siteName), function(x){
+  
+   
+})
+
+
+### Fram is 12
+fram <- scds[scds$siteName == 12,]
+fram <- fram %>%
+  filter(!is.na(Transect.Meter.Mark))
+## We left the demographic transects so transects ran North to South instead of S to N
+fram$Transect.Meter.Mark[fram$transectOrientation == "NS"] <-
+  100-fram$Transect.Meter.Mark[fram$transectOrientation == "NS"]
+
+# fram %>%
+#   filter(transectOrientation == "NS") %>%
+fram %>%
+  filter(Distance.To.Group < 6) %>%
+ggplot( aes(Distance.To.Group,Transect.Meter.Mark, 
+            color = interaction(transectOrientation, transectNumber_)))+
+  geom_point(show.legend = FALSE) +
+  facet_grid(transectNumber_ ~ transectOrientation)
+
+fram %>%
+  
+
+```
+
