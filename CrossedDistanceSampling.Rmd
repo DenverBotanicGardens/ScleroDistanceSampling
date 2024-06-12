@@ -16,6 +16,71 @@ library(ggplot2)
 
 
 ```{r}
+ds2024 <- read.csv("C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/Data/plantData_1.csv")
+
+head(ds2024)
+nrow(ds2024) ## 1478 plants
+
+dstrans <- read.csv("C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/Data/transect_2.csv")
+
+head(dstrans)
+nrow(dstrans) # 35 line transects
+
+## Transect.meter.mark and direction to group, and distance to group. x, y were GPS point 
+ds_One <- read.csv("C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/Data/distanceSampling_1.csv")
+
+head(ds_One)
+
+
+```
+
+
+## Data checks
+```{r}
+library(tidyverse)
+library(sf)
+library(mapview)
+library(leaflet)
+
+## 4 records in site 1 --> are also Picnic, 1 record with NA for site --> should be OilPad
+# the extra site numbers are due to advancing the transect instead of the record within a transect. 
+siteIDs <- data.frame(SiteID = c('1','3','10','12','11'),
+                      SiteName = c('Picnic', 'Picnic', 'Bridgeport', 'Fram', 'OilPad'))
+
+
+## assuming we took data in WGS84 via the argument crs = 4326
+## However, we were uncertain and stopped updating all the points. These points will also have spatial error ca. 1-10 meters
+ds_One$siteName[is.na(ds_One$siteName)] <- 11
+ds_One %>%
+  mutate(siteName = as.factor(siteName)) %>%
+  left_join(siteIDs, by = c("siteName" = "SiteID")) %>%
+  filter(!is.na(x)) %>%
+  filter(x != 0) %>%
+mapview(  xcol = 'x', ycol = 'y', crs = 4269, grid = FALSE, 
+          zcol = 'SiteName',
+          label = ds_One$SiteName[ds_One$x != 0],
+          labelOptions = labelOptions(noHide = TRUE, textOnly = TRUE))
+## Labels appear when mouse hovers over
+
+
+ds_One %>%
+  mutate(siteName = as.factor(siteName)) %>%
+  filter(!is.na(x)) %>%
+  filter(x != 0) %>%
+mapview(  xcol = 'x', ycol = 'y', crs = 4269, grid = FALSE, 
+          zcol = 'siteName',
+          label = ds_One$SiteName[ds_One$x != 0],
+          labelOptions = labelOptions(noHide = TRUE, textOnly = TRUE))
+
+
+```
+
+
+
+
+## Jonathan testing
+```{r}
+## it's not 2023, it's from 2024!
 ds2023 <- read.csv("C:/Users/deprengm/Denver Botanic Gardens/Conservation - General/AllProjectsBySpecies/Sclerocactus-glaucus/Sclerocactus-glaucus_Projects/2024_Sclerocactus-glaucus_distancesampling/JONATHAN TEST S123_2024_distanceSampling_ScGl/distanceSampling_1.csv")
 
 head(ds2023)
