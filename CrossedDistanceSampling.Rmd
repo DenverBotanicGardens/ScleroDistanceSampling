@@ -7,11 +7,17 @@ output: html_document
 
 ```{r}
 
-rm(list=ls()) 
+rm(list=ls())
 
 library(dplyr)
 library(tidyr)
 library(ggplot2)
+library(tidyverse)
+library(sf)
+library(mapview)
+library(leaflet)
+
+# webshot::install_phantomjs()
 ```
 
 
@@ -42,10 +48,7 @@ nrow(ds_demographic) # 79 transects with x,y
 
 ## Data checks
 ```{r}
-library(tidyverse)
-library(sf)
-library(mapview)
-library(leaflet)
+
 
 ## 4 records in site 1 --> are also Picnic, 1 record with NA for site --> should be OilPad
 # the extra site numbers are due to advancing the transect instead of the record within a transect. 
@@ -102,6 +105,31 @@ ds_demographic %>%
 ```
 
 
+Save 'leaflet' as jpg or png   
+```{r}
+library(leaflet)
+demoSites <- read.csv("https://raw.githubusercontent.com/DenverBotanicGardens/ScGl/master/datasets/_scgl_sites.csv")
+
+# make rendered html self-contained
+mapviewOptions(fgb = FALSE)
+
+demo2plot <- ds_demographic %>%
+  left_join(demoSites, by = c("site" = "ScGl_site_id"))
+m <- demo2plot %>%
+  mutate(transect = as.factor(transect),
+         site = as.factor(site)) %>%
+  mapview(  xcol = 'x', ycol = 'y', crs = 4269, grid = FALSE,
+            zcol = 'SiteName')
+
+  # ,
+  #           label = ds_demographic$SiteName,
+  #           labelOptions = labelOptions(noHide = TRUE, textOnly = TRUE))
+
+mapshot(m, file = "C:/Users/deprengm/Denver Botanic Gardens/Conservation - General/AllProjectsBySpecies/Sclerocactus-glaucus/Sclerocactus-glaucus_AnnualReports/DemographicSitesMap.png")
+
+mapshot(m, file = "C:/Users/deprengm/Denver Botanic Gardens/Conservation - General/AllProjectsBySpecies/Sclerocactus-glaucus/Sclerocactus-glaucus_AnnualReports/DemographicSitesMapv2.png",
+         removeControl = c())
+```
 
 
 
@@ -109,7 +137,8 @@ ds_demographic %>%
 
 
 
-
+#############################################################################################################################
+_____________________________________________________________________________________________________________________________
 
 
 ## Jonathan testing
