@@ -308,17 +308,42 @@ Assume detections by each observer are independent
 
 ```{r}
 
-fram_id %>%
-  # filter(duplicated(plant_id)) %>%
-  group_by(plant_id) %>%
-  summarise(m = n()) %>%
+fram_duped %>%
   select(distance_to_group, number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group, 
-         transect_orientation ,x, y, plant_id, zoned, m) %>%
+         transect_orientation ,x, y, plant_id, zoned) %>%
 ggplot(  aes(x,y, color = transect_orientation, shape = transect_orientation)) +
   geom_point()+
   scale_shape_manual(values = c(3,4))+
   scale_color_manual(values = c("black","skyblue"))+
   theme_bw()
+
+# Burt et al 2014
+n_ew <- fram_duped %>%
+  filter(zoned == 1) %>%
+  filter(transect_orientation == "EW") %>%
+  summarise(n_ew = n_distinct(plant_id))
+
+## previously marked that were seen in both
+m_ns <- fram_duped %>%
+  filter(zoned == 1) %>%
+  group_by(plant_id) %>%
+  summarise(m = n()) %>%
+  filter(m > 1) %>%
+  summarise(n = n())
+
+M <- length(unique(fram_duped$plant_id[fram_duped$zoned == 1]))
+
+N <- (n_ew*M)/m_ns
+
+## But what I want is the detection probability
+
+## For logistic regression, success of NS seeing ones in EW and then of EW seeing ones from NS  
+obs_trials <- fram_duped %>%
+  select(distance_to_group, number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group, 
+         transect_orientation ,x, y, plant_id, zoned) %>%
+  filter(zoned == 1) %>%
+  mutate(m = length(duplicated(plant_id)),
+         EW_2 = )
 
 
 ```
