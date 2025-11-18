@@ -1,0 +1,86 @@
+---
+title: "Phob_Phco_distancesamp"
+author: "Michelle DePrenger-Levin"
+date: "2025-11-17"
+output: html_document
+---
+install.packages("ggplot2") to download packages
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(unmarked)
+```
+
+
+
+```{r}
+
+phob <- read.csv("C:/Users/deprengm/ScleroDistanceSampling/Data/PhOB_PhCo.csv")
+
+phob <- phob %>%
+  rename("Dist" = "Distance.From.Transect..m.")
+
+```
+
+```{r}
+
+
+ggplot(phob, aes(Dist, fill = as.factor(Trans)))+
+  geom_histogram(bins = 24)+
+  theme_bw()
+
+```
+
+
+```{r}  
+# Bin data into distance categories
+phobBreaks <-  seq(0,15,0.1)
+
+yDat <- formatDistData(distData = phob, 
+                       distCol = "Dist", transectNameCol = "Trans",
+                       dist.breaks = phobBreaks)
+
+# Format into umf format
+umf <- unmarkedFrameDS(y = as.matrix(yDat),
+                       siteCovs = NULL, # data.frame 
+                       survey = "line",
+                       dist.breaks = phobBreaks,
+                       tlength = c(50,50),  ## keep adding the lengths
+                       unitsIn = "m")
+
+
+summary(umf)
+```
+
+10.72 acres
+0.04338 sq km
+
+
+```{r}
+
+m.half <- distsamp(~1 ~1, umf, keyfun = "halfnorm", output = "density", unitsOut = "kmsq")
+m.haz <- distsamp(~1 ~1, umf, keyfun = "hazard", output = "density", unitsOut = "kmsq")
+m.unif <- distsamp(~1 ~1, umf, keyfun = "uniform", output = "density", unitsOut = "kmsq")
+
+m.half
+m.haz
+m.unif
+
+
+library(MuMIn)
+model.sel(m.half, m.unif)
+
+exp((confint(m.half, type = "state")))*0.04338
+
+predict(m.half, type = "state")[1,]
+
+phobDensity <- predict(m.half, type = "state")$Predicted
+phobDensity/1000000 
+phobDensity * 0.04338
+
+
+
+```
+
