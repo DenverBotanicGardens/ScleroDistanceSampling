@@ -10,6 +10,9 @@ library(plyr)
 setwd("~/.ssh/ScleroDistanceSampling")
 DSdata <- read.csv("DistSamp_ScGl_JuneJuly.csv")
 
+distsamp <- read.csv("C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/Data/distanceSampling_1.csv")
+head(distsamp)
+
 #get only data from certain dates
 DSdata$Date<-as.character(DSdata$Date)
 DSdata$Site<- as.character(DSdata$Site)
