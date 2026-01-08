@@ -36,50 +36,6 @@ scgl_obs <- clean_names(scgl_obs)
 ```
 
 
-
-```{r}
-
-site <- fram_id
-b <- 1
-
- temp_site <-  site %>% 
-    rowwise() %>% 
-    mutate(coord = list(c(x,y)))
-
- 
-temp_site %>%
-  select(site_name, transect_orientation, x, y, coord)
-
-
- grid <-  expand.grid(EW = temp_site[which( site$transect_orientation == "EW"), "coord"]$coord,
-                      NS = temp_site[which( site$transect_orientation == "NS"), "coord"]$coord) %>% 
-    rowwise() %>% # to look for the differences between EW and NS points by row
-   #make a column of distances between points
-    mutate( dist = sqrt(sum((EW - NS)^2))) %>% 
-   #filter the combinations to only the ones within the supplied fuzziness `b`
-    filter(dist <= b)
-
-grid$dist 
-
-grid <- left_join(grid, temp_site[, c("coord", "plant_id")],
-                  by = join_by(EW == coord)) %>% 
-  mutate(EW_ID = plant_id, plant_id = NULL) %>% 
-  #appending to contain columns with NS plant_id's for each combination
-  left_join(temp_site[, c("coord", "plant_id")], 
-            by = join_by(NS == coord)) %>% 
-  mutate(NS_ID = plant_id, plant_id = NULL)
-
-grid %>% select(EW_ID, NS_ID) %>% ## These are just the row numbers for each
-  arrange(EW_ID)
-
-if(!(all(count(grid, NS_ID)$n >1) | all(count(grid, EW_ID)$n >1)) ){
-  grid <- filter(group_by(grid, NS_ID), dist == min(dist))
-  grid <- filter(group_by(grid, EW_ID), dist == min(dist))
-  }
-
-```
-
-
 This function will be used later to find duplicate plants
 
 ```{r test function}
@@ -129,6 +85,8 @@ if(!(all(count(grid, NS_ID)$n >1) | all(count(grid, EW_ID)$n >1)) ){
 
 ```
 
+
+Start here
 ```{r}
 scgl <- scgl_obs[!(is.na(scgl_obs$transect_meter_mark|scgl_obs$distance_to_group)),] %>% #filtering NA's and outliers. 
         filter(transect_meter_mark < 110, distance_to_group < 10) %>% 
@@ -270,6 +228,51 @@ fram_plot1
   
 ```
 
+
+```{r}
+
+site <- fram_id
+b <- 1
+
+ temp_site <-  site %>%
+ rowwise() %>%
+ mutate(coord = list(c(x,y)))
+
+ 
+temp_site %>%
+  select(site_name, transect_orientation, x, y, coord)
+
+
+ grid <-  expand.grid(EW = temp_site[which( site$transect_orientation == "EW"), "coord"]$coord,
+                      NS = temp_site[which( site$transect_orientation == "NS"), "coord"]$coord) %>% 
+    rowwise() %>% # to look for the differences between EW and NS points by row
+   #make a column of distances between points
+    mutate( dist = sqrt(sum((EW - NS)^2))) %>% 
+   #filter the combinations to only the ones within the supplied fuzziness `b`
+    filter(dist <= b)
+
+grid$dist 
+
+grid <- left_join(grid, temp_site[, c("coord", "plant_id")],
+                  by = join_by(EW == coord)) %>% 
+  mutate(EW_ID = plant_id, plant_id = NULL) %>% 
+  #appending to contain columns with NS plant_id's for each combination
+  left_join(temp_site[, c("coord", "plant_id")], 
+            by = join_by(NS == coord)) %>% 
+  mutate(NS_ID = plant_id, plant_id = NULL)
+
+grid %>% select(EW_ID, NS_ID) %>% ## These are just the row numbers for each
+  arrange(EW_ID)
+
+if(!(all(count(grid, NS_ID)$n >1) | all(count(grid, EW_ID)$n >1)) ){
+  grid <- filter(group_by(grid, NS_ID), dist == min(dist))
+  grid <- filter(group_by(grid, EW_ID), dist == min(dist))
+  }
+
+```
+
+
+
 Dark blue points are overlapping observations based on fuzziness provided in the `crossed()` function
 
 ### Observational Error
@@ -282,21 +285,6 @@ Use a loop to filter down to only cactus that *should* have been seen both going
 ob_error_fram <- (nrow(filter(fram_duped, duplicated(plant_id)))*2 / nrow(filter(fram_duped, zoned == 1)))
 ```
 
-```{r echo=FALSE}
-
-#  error comes from the number if plants were seen going NS AND EW divided by number if plants seen going NS OR EW within the 3 meter crossing zone
-
-print(paste("Observational error =", ob_error_fram, sep = " "))
-print(paste("Actual number of unique cactus = ", n_distinct(fram_duped$plant_id), sep = " " ))
-#should be the corrected number of observations. 
-print( paste("Corrected number of observations =",
-             mean( c(n_distinct(which(fram_duped$transect_orientation == "NS"))/
-                       ob_error_fram, 
-                     n_distinct(which(fram_duped$transect_orientation == "EW"))/
-                       ob_error_fram)) , sep = " ")) 
-
-
-```
 
 
 # Lincoln-Petersen estimator  
