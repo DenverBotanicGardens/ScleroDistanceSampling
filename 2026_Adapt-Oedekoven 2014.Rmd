@@ -1,0 +1,111 @@
+---
+title: "Bayesian Hierarchical DS model"
+output: html_document
+date: "2026-01-07"
+---
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+
+     
+     
+Oedekoven et al 2014 example data:            
+
+      columns: id,     
+      distance,     
+      site: refer to the paired treatment and control points,       
+      year: repeat samples,     
+      type,       
+      state    
+      
+```{r}
+# for the detection function model L_y(\bmath{\theta}) (eqn (3))
+# matrix covey.d: a n*6 matrix  (n = total number of detections, 6 columns: id, distance, site, year, type, state)
+# covey.d<-covey2[which(is.na(covey2$Distance)==F),]
+load("C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/Picnic_distances.R")
+picnic.d <- picnic_1 %>%
+  mutate(distance = abs(distance_to_group)) %>%
+  rename(id = object_id) %>%
+  mutate(site = "picnic") %>%
+  rename(transori = transect_orientation) %>% # similar to the repeat measures of year
+  rename(TransLth = `Transect Length`) %>%
+  rename(TranNum = transect_number) %>%
+  # type is control or treatment of the pairs by site transects    
+  # state are the states of the US  
+  select(id, distance, site, transori, TransLth, TranNum)
+# length.d<-length(covey.d$Distance)
+length.d <- nrow(picnic.d)
+
+# only Picnic right now
+j <- 1
+site <- c("picnic","fram","oilpad")
+
+# number of observations for each site
+Tj<-array(NA,j)
+for (i in 1:j){
+# Tj[i]<-length(count.data$Pair2[glm.data$Pair2==pair[i]])
+Tj[i] <- length(picnic.d$id[picnic.d$site == site[i]])  
+}
+
+# The unique values for each grouping
+trans_orientation <- sort(unique(picnic.d$transori))
+
+
+
+```
+
+
+```{r}
+
+## Matrix for the values 
+# matrix that will hold the counts n.jpr for each site (1 row per site)
+Y<-matrix(NA,j,max(Tj)) 
+
+# matrix that will hold the values for Year (1 for 2006, 2 for 2007, 3 for 2008): factor covariate with 2 levels
+TransOri <- matrix(NA,j,max(Tj))
+
+# matrix that will hold the values for Julian day; can use this for the multiple observations at picnic the first time
+# Day<-matrix(NA,j,max(Tj))
+
+# filling in the above values from
+for (i in 1:j){
+    x<-which(picnic.d$site == site[i])
+    l<-Tj[x])
+    y<-count.data$Count[x]
+        for (k in 1:l){
+    
+          Y[i,k]<-y[k]
+          Year[i,k]<-ifelse(count.data$Year[x[k]]==2006,1,{ifelse(count.data$Year[x[k]]==2007,2,3)})
+          Type[i,k]<-ifelse(count.data$Type[x[k]]=="TREAT",1,0)
+          Day[i,k]<-count.data$jd[x[k]]
+          State[i,k]<-which(States==count.data$State[x[k]])
+      }
+     }
+sum(Y[which(is.na(Y)==F)])
+```
+
+Integrated likelihood combing likelihood components of the detection and count models.    
+Count: Poisson likelihood, with detection function, relates to covariates via a log-link function      
+
+     * does not rely on random placement of samplers (lines or points) - compared to a design-based approach    
+
+
+Metropolis-Hastings updating algorithm with reversible jump Markov chin Monte Carlo for model uncertainty.    
+
+     * can have different key functions for the detection function model     
+     * can have different covariate combinations for the detection and the count models    \
+     * have a random effect for site to accommodate correlated counts due to e.g. repeat counts at the same site - Have the standard deviation of the random effect be a random variable with a distibution rather than a fixed value. 
+     
+     
+Data:       
+
+     * y: observed distances         
+     * n_p: number of detections at line along with effort data (area as length of lines and width before truncation)          
+     * s_e: cluster size if not individuals (need to extend this example with a cluster size model: see Canadas and Hammond 2006, Schmidt et al 2012)     
+
+
+
