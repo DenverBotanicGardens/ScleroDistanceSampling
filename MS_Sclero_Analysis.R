@@ -8,6 +8,7 @@ library(plyr)
 
 #read in the data
 setwd("~/.ssh/ScleroDistanceSampling")
+setwd("C:/Users/deprengm/ScleroDistanceSampling")
 DSdata <- read.csv("DistSamp_ScGl_JuneJuly.csv")
 
 distsamp <- read.csv("C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/Data/distanceSampling_1.csv")
@@ -23,12 +24,22 @@ dates<- c("8/4/21","8/5/21","8/6/21", "8/1/21")
 DSdata<- DSdata %>%
   filter(DSdata$Date %in% dates)
 
+# See only larger individuals at farther distances
+ggplot(DSdata, aes(Dist, Width, color = Site ))+
+  geom_point()
+
+
 #T-Junction n=25
 nrow(DSdata[DSdata$Site=="T-Junction",])
 #Picnic n=159
 nrow(DSdata[DSdata$Site=="Picnic",])
 
-sum(DSdata$Length)
+## Total length of 180 meters by w = 6 for Picnic, total length of 120 half width is 6 for T-junction
+DSdata %>%
+  distinct(Site, Line, .keep_all = TRUE) %>%
+  group_by(Site) %>%
+  dplyr::summarise(TotalLength = sum(Length)*6*2)
+  
 
 #add unique identifier
 DSdata$trans <- paste(DSdata$Site,DSdata$Line, sep = ".")
@@ -57,7 +68,7 @@ DS.ordered <- DS[with(DS, order(DS$Site, DS$Date, DS$Dist)),]
 str(DS.ordered) # $trans is currently a character, could be anything. Setting as a factor restricts it to only the current values (character strings)
 DS.ordered$trans <- as.factor(DS.ordered$trans)
 
-## TRUNCATION
+## TRUNCATION - half-width is 6 meters
 
 #COMBINED
 DS.trunc <- DS[DS$Dist < 6,]
@@ -67,6 +78,16 @@ ggplot(DS.trunc, aes(Dist, fill =  Site))+
   geom_histogram(bins=24)+
   facet_wrap(~Site)+
   theme_bw()
+
+dev.off()
+
+scatter.smooth(DS.trunc$Height[DS.trunc$Site == "T-Junction"], family = "gaussian", pch= 20, cex=.9, lpars=list(lwd=3),
+               xlab="Plant Height",ylab="Distance (m)")
+
+scatter.smooth(DS.trunc$Height[DS.trunc$Site == "Picnic"], family = "gaussian", pch= 20, cex=.9, lpars=list(lwd=3),
+               xlab="Plant Height",ylab="Distance (m)")
+
+
 
 
 #format the data for umf, set correct truncation and binning
@@ -88,7 +109,7 @@ siteCovs$Cover <- ifelse(siteCovs$Site %in% "Picnic", 0.175633,0.480958)
 umf <- unmarkedFrameDS(y = as.matrix(yDat), 
                        siteCovs = siteCovs,
                        survey = "line",
-                       dist.breaks = seq(0,6,0.25), 
+                       dist.breaks = seq(0,6,0.25),
                        tlength= siteCovs$length, 
                        unitsIn = "m")
 summary(umf)
@@ -106,22 +127,27 @@ m.haz <- distsamp(~1 ~1, umf, keyfun="hazard", output="density", unitsOut="kmsq"
 
 m.uni <- distsamp(~1 ~1, umf, keyfun="uniform", output="density", unitsOut="kmsq")
 #M.HALF AIC =
-m.half
+m.half # AIC: 630.954 
 #m.haz AIC = 
-m.haz
+m.haz  # AIC: 593.3394 
 #m.uni AIC = 
-m.uni
-library(MuMIn)
-model.sel(m.half,m.haz,m.uni)
+m.uni  # AIC: 842.1926
+# library(MuMIn)
+# model.sel(m.half,m.haz,m.uni)
+AIC(m.uni, m.half, m.haz)
+Distance::summarize_ds_models(m.uni, m.half, m.haz)
 
-#USING COVER AS A COVARIATE
-m.haz.1.cover <- distsamp(~1 ~Cover, umf, keyfun="hazard", output="density", unitsOut="kmsq") 
-m.haz.1.cover2 <- distsamp(~Cover ~1, umf, keyfun="hazard", output="density", unitsOut="kmsq") 
-m.haz.1.cover3 <- distsamp(~Cover ~Cover, umf, keyfun="hazard", output="density", unitsOut="kmsq") 
+#USING COVER AS A COVARIATE; detection and then abundance
+m.haz.1.cover <- distsamp(~1 ~Cover, umf, keyfun="hazard", output="density", unitsOut="kmsq")      # AIC: 572.3241
+m.haz.1.cover2 <- distsamp(~Cover ~1, umf, keyfun="hazard", output="density", unitsOut="kmsq")     # AIC: 583.327 
+m.haz.1.cover3 <- distsamp(~Cover ~Cover, umf, keyfun="hazard", output="density", unitsOut="kmsq") # AIC: 574.307 
 #used 0 here as a start value for cover, 0 behaves the same as -1 and 0.5, they all give the same answer.
-m.haz.1.cover #improves here
-here<- data.frame(model.sel(m.haz,m.haz.1.cover,m.haz.1.cover2,m.haz.1.cover3, m.uni,m.half))
-here$delta
+
+
+
+
+# here<- data.frame(model.sel(m.haz,m.haz.1.cover,m.haz.1.cover2,m.haz.1.cover3, m.uni,m.half))
+# here$delta
 
 #BEST
 m.haz.1.cover
@@ -459,3 +485,132 @@ m.haz.1.siteN3<-distsamp(~Cover ~1, umfN, keyfun="hazard", output="density", uni
 
 model.sel(m.hazN,m.haz.1.siteN,m.haz.1.siteN2,m.haz.1.siteN3) #adding cover to just the intercept (density) is best
 
+
+## Indivdiual covariates height and width have little impact. 
+library(Distance)
+conversion.factor <- convert_units("Metre", NULL, "square metre")
+
+DS.Picnic <- DS.trunc %>%
+  filter(Site == "Picnic") %>%
+  dplyr::rename("distance" = "Dist")
+
+scglPic.unif <- ds(DS.Picnic, transect = "line", key = "unif", 
+                 adjustment = NULL, convert_units = conversion.factor)
+
+scglPic.hn <- ds(DS.Picnic, transect = "line", key = "hn", 
+                   adjustment = NULL, convert_units = conversion.factor)
+
+summary(scglPic.hn)
+
+scglPic.hr <- ds(DS.Picnic, transect = "line", key = "hr", 
+                 adjustment = NULL, convert_units = conversion.factor)
+
+scglPic.height <- ds(DS.Picnic, transect = "line", key = "hr", formula = ~ Height,
+                     adjustment = NULL, convert_units = conversion.factor)
+
+scglPic.width <- ds(DS.Picnic, transect = "line", key = "hr", formula = ~ Width,
+                    adjustment = NULL, convert_units = conversion.factor)
+
+
+scglPic.widthHeight <- ds(DS.Picnic, transect = "line", key = "hr", formula = ~ Width + Height,
+                    adjustment = NULL, convert_units = conversion.factor)
+
+AIC(scglPic.unif,scglPic.hr, scglPic.hn,scglPic.height, scglPic.width, scglPic.widthHeight)
+
+plot(scglPic.height, pdf = TRUE, main = "Hazard rate with height of plant", showpoints=FALSE)
+
+plot(scglPic.width, pdf = TRUE, main = "Hazard rate with width of plant", showpoints=FALSE)
+plot(scglPic.unif, pdf = TRUE, main = "Uniform", showpoints=FALSE)
+
+plot(scglPic.hr, pdf = TRUE, main = "Hazard rate", showpoints=FALSE)
+
+
+### TEST BAYES see if same results  
+library(rjags)
+library(R2jags)
+
+### When want to use data augmentation 
+# Data augmentation: add a bunch of "pseudo-individuals"
+# nz <- 500 # Augment by 500
+# nind <- nrow(data)
+# y <- c(data[,2], rep(0, nz)) # Augmented detection indicator y
+# site <- c(data[,1], rep(NA, nz)) # Augmented site indicator,
+# # unknown (i.e., NA) for augmented inds.
+# d <- c(data[,5], rep(NA,nz)) # Augmented distance data (with NAs)
+
+
+## Binned distance sampling to compare to ds  
+## Evaluate the detection function at the midpoint of each interval 
+# log(p[g]) <- -midpt[g]*midpt[g]/(2*sigma*sigma) ## half-normal function
+## The probability mass for each distance interval, given the proportion of the bin
+# pi[g] <- delta/B
+
+x <- DS.Picnic$distance                    # distance data
+nind <- nrow(DS.Picnic)
+nz <- 200                                  # Augment observer data with zeros
+y <- c(rep(1, nind), rep(0, nz))           # non-detections added
+x <- c(x, rep(NA, nz))                     # distances are missing for augmented
+
+B <- 6                                     # Strip half-width; truncation distance.
+delta <- 0.25                              # width of the distance bins.
+xg <- seq(0,B, delta)                      # interval cut points
+dclass <- x %/% delta + 1                  # vector of distance classes; convert distances to cat. distances
+midpt <- seq(delta/2, B, delta)            # make mid-points and chop up data
+# midpt <- xg[-1] - delta/2        # SAME
+nD <- length(xg) - 1                       # number of distance bins.
+
+jags.data <- list(nind = nind, dclass = dclass, midpt = midpt, delta = delta, B = B,
+                  nz = nz, y = y,
+                  nD = nD)
+
+modelPicnic <- 
+  paste("
+        model {
+          
+          # Priors
+          psi ~ dunif(0,1)
+          
+          ## Hazard Rate
+          # sigma ~ dunif(0,100)
+          # tau ~ dunif(0,10)
+          
+          ## Half-normal
+          sigma ~ dunif(0,1000)
+          
+          # Conditional detection and Pr(x) for each bin
+          for(g in 1:nD){             # just each mid point
+            log(p[g]) <- -midpt[g]/(2*sigma*sigma)  # half-normal
+            # log(p[g]) <- 1 - exp(-pow(midpt[g]/sigma, -tau) )  # hazard rate??
+            pi[g] <- delta/B                        # probability of x in each interval
+          }
+          
+          for(i in 1:(nind+nz)){
+            z[i] ~ dbern(psi)          # model for individual covariates
+            dclass[i] ~ dcat(pi[])     # population distribution of distance class
+            mu[i] <- z[i]*p[dclass[i]] # p depends on distance class
+            y[i] ~ dbern(mu[i])
+          }
+          
+          # Derived Population size and density
+          N <- sum(z[]) 
+          D <- N/2160      ## 180 meters, half width is 6 meters
+  }") 
+
+writeLines(modelPicnic, "Picnic_hn.jags")
+
+# Inits function
+zst <- y # DA variables start at observed value of y
+inits <- function(){ list (psi=runif(1), z=zst, sigma=runif(1,40,200)) }
+# Parameters to save
+params <- c("N", "sigma", "D", "p")
+
+ni <- 11000
+nt <- 2
+nb <- 1000
+nc <- 3
+## Call JAGS from R
+out <- jags(jags.data, inits, params, "Picnic_hn.jags", 
+             n.thin = nt, n.chains = nc, n.burnin = nb, n.iter = ni, 
+             working.directory = getwd())
+
+print(out)    
