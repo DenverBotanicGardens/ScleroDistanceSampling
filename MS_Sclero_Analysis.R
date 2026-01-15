@@ -11,6 +11,13 @@ setwd("~/.ssh/ScleroDistanceSampling")
 setwd("C:/Users/deprengm/ScleroDistanceSampling")
 DSdata <- read.csv("DistSamp_ScGl_JuneJuly.csv")
 
+## How big are our T-Junction and Picnic sites?
+library(dssd)
+picnic.region <- make.region(region.name = "Picnic", shape = "C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/Picnic/Tjunction.shp",
+                            units = "m")
+plot(picnic.region)
+## 6459 m^2??
+
 distsamp <- read.csv("C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/Data/distanceSampling_1.csv")
 head(distsamp)
 
@@ -92,9 +99,9 @@ scatter.smooth(DS.trunc$Height[DS.trunc$Site == "Picnic"], family = "gaussian", 
 
 #format the data for umf, set correct truncation and binning
 yDat <- formatDistData(DS.trunc, distCol = "Dist", transectNameCol = "trans", dist.breaks = seq(0,6,0.25))
+yDat.Pic <- formatDistData(DS.trunc[DS.trunc$Site == "Picnic",], distCol = "Dist", transectNameCol = "trans", dist.breaks = seq(0,6,0.25))
 
-
-#COVARIATES aka cover
+#COVARIATES aka cover; percent plant cover from LPI
 table(DS$trans, DS$Length)
 identical(row.names(table(DS$trans, DS$Length)), row.names(yDat))
 # get the column names (the lengths) in the order of the rows, when >0
@@ -104,6 +111,7 @@ siteCovs <- data.frame(Site = unlist(lapply(row.names(yDat), function(x) strspli
                        length = 
                          c(apply(table(DS$trans, DS$Length), 1, function(x) as.numeric(as.character(names(x[x>0]))))))
 siteCovs$Cover <- ifelse(siteCovs$Site %in% "Picnic", 0.175633,0.480958)
+
 
 #format into umf format
 umf <- unmarkedFrameDS(y = as.matrix(yDat), 
@@ -119,11 +127,25 @@ ggplot(DS, aes(Dist, fill =  Site))+
   facet_wrap(~Site)+
   theme_bw()
 
+
+umfPic <- unmarkedFrameDS(y = as.matrix(yDat.Pic), 
+                       siteCovs = siteCovs[siteCovs$Site == "Picnic",],
+                       survey = "line",
+                       dist.breaks = seq(0,6,0.25),
+                       tlength= siteCovs$length[siteCovs$Site == "Picnic"], 
+                       unitsIn = "m")
+
 ###################################################### MODELS #########################################################
 
 m.half <- distsamp(~1 ~1, umf, keyfun="halfnorm", output="density", unitsOut="kmsq")
+predict(m.half, type = "state")[1,]/1000000
+m.halfPic <- distsamp(~1 ~1, umfPic, keyfun="halfnorm", output="density", unitsOut="kmsq")
+predict(m.halfPic, type = "state")[1,]
 
 m.haz <- distsamp(~1 ~1, umf, keyfun="hazard", output="density", unitsOut="kmsq")
+predict(m.haz, type = "state")[1,]/1000000
+m.hazPic <- distsamp(~1 ~1, umfPic, keyfun="hazard", output="density", unitsOut="kmsq")
+predict(m.hazPic, type = "state")[1,]/1000000
 
 m.uni <- distsamp(~1 ~1, umf, keyfun="uniform", output="density", unitsOut="kmsq")
 #M.HALF AIC =
@@ -451,7 +473,7 @@ umfN <- unmarkedFrameDS(y = as.matrix(yDatN),
 
 #### COMPETE MODELS ####
 #fit to either half-normal, hazard or uniform
-
+# https://cran.r-project.org/web/packages/unmarked/vignettes/distsamp.html 
 #REPRO
 
 m.halfR <- distsamp(~1 ~1, umfR, keyfun="halfnorm", output="density", unitsOut="kmsq")
@@ -524,6 +546,11 @@ plot(scglPic.unif, pdf = TRUE, main = "Uniform", showpoints=FALSE)
 
 plot(scglPic.hr, pdf = TRUE, main = "Hazard rate", showpoints=FALSE)
 
+Pic.distsamp.hn <- distsamp(~1 ~1, DS.Picnic, keyfun = "halfnorm",
+                            output = "abund",
+                            unitsOut = "kmsq")
+
+##################################################################################################
 
 ### TEST BAYES see if same results  
 library(rjags)
@@ -593,7 +620,8 @@ modelPicnic <-
           
           # Derived Population size and density
           N <- sum(z[]) 
-          D <- N/2160      ## 180 meters, half width is 6 meters
+          D <- N/1560  ### 2160      ## 180 meters, half width is 6 meters
+          Ntot <- D * 6459           # the square meter density by the total m^2 of Picnic
   }") 
 
 writeLines(modelPicnic, "Picnic_hn.jags")
@@ -602,7 +630,7 @@ writeLines(modelPicnic, "Picnic_hn.jags")
 zst <- y # DA variables start at observed value of y
 inits <- function(){ list (psi=runif(1), z=zst, sigma=runif(1,40,200)) }
 # Parameters to save
-params <- c("N", "sigma", "D", "p")
+params <- c("N", "Ntot", "sigma", "D", "p")
 
 ni <- 11000
 nt <- 2
@@ -613,4 +641,6 @@ out <- jags(jags.data, inits, params, "Picnic_hn.jags",
              n.thin = nt, n.chains = nc, n.burnin = nb, n.iter = ni, 
              working.directory = getwd())
 
-print(out)    
+print(out)   
+summary(scglPic.hn)
+
