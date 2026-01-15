@@ -644,3 +644,57 @@ out <- jags(jags.data, inits, params, "Picnic_hn.jags",
 print(out)   
 summary(scglPic.hn)
 
+########### Can I get the hazard rate function to work?? 
+modelPicnicHaz <- 
+  paste("
+        model {
+          
+          # Priors
+          psi ~ dunif(0,1)
+          
+          ## Hazard Rate
+          sigma ~ dunif(0,100)
+          tau ~ dunif(0,10)
+          
+          ## Half-normal
+          # sigma ~ dunif(0,1000)
+          
+          # Conditional detection and Pr(x) for each bin
+          for(g in 1:nD){             # just each mid point
+            # log(p[g]) <- -midpt[g]/(2*sigma*sigma)  # half-normal
+            p[g] <- 1 - exp(-(1 - exp(pow(midpt[g]/sigma, -tau) ) )) # hazard rate -h(x; sigma, b))
+            pi[g] <- delta/B                        # probability of x in each interval
+          }
+          
+          for(i in 1:(nind+nz)){
+            z[i] ~ dbern(psi)          # model for individual covariates
+            dclass[i] ~ dcat(pi[])     # population distribution of distance class
+            mu[i] <- z[i]*p[dclass[i]] # p depends on distance class
+            y[i] ~ dbern(mu[i])
+          }
+          
+          # Derived Population size and density
+          N <- sum(z[]) 
+          D <- N/1560  ### 2160      ## 180 meters, half width is 6 meters
+          Ntot <- D * 6459           # the square meter density by the total m^2 of Picnic
+  }") 
+
+writeLines(modelPicnicHaz, "Picnic_haz.jags")
+
+# Inits function
+zst <- y # DA variables start at observed value of y
+inits <- function(){ list (psi=runif(1), z=zst, sigma=runif(1,40,200)) }
+# Parameters to save
+params <- c("N", "Ntot", "sigma", "D", "p")
+
+ni <- 11000
+nt <- 2
+nb <- 1000
+nc <- 3
+## Call JAGS from R
+outHaz <- jags(jags.data, inits, params, "Picnic_haz.jags", 
+            n.thin = nt, n.chains = nc, n.burnin = nb, n.iter = ni, 
+            working.directory = getwd())
+
+print(out)   
+
