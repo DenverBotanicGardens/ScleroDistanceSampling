@@ -459,6 +459,284 @@ pic_plot1
 
 ```
 
+https://distancesampling.org/mrds/articles/mrds-golftees.html 
+Follow example and make data like mrds 
+```{r}
+library(mrds)
+
+data("book.tee.data")
+
+book.tee.data$book.tee.dataframe  # List 1
+
+picnic.data <- picnic_duped %>%
+  filter(zoned == 1) %>%
+  mutate(detected = 1) %>%
+  mutate(distance = abs(distance_to_group)) %>%
+  rowwise() %>%
+  mutate(size = sum(c(number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group), na.rm = TRUE)) %>%
+  ungroup() %>%
+  dplyr::rename("observer" = "transect_orientation") %>%
+  dplyr::select(plant_id, observer, detected, ## detected by fill all plant_id for each trans_ori
+         distance, size, transect_meter_mark) %>%
+  complete(nesting(plant_id,size),observer, fill = list(detected = 0)) %>% ## Keep only size and plantID that are in the data
+  relocate(size, .after = distance) %>%
+  group_by(plant_id) %>%
+  mutate(distance = case_when(any(is.na(distance)) & abs(transect_meter_mark) < 15 ~ abs(10-max(transect_meter_mark, na.rm = TRUE)),
+      any(is.na(distance)) & abs(transect_meter_mark) > 15 & abs(transect_meter_mark) < 25 ~ abs(20-max(transect_meter_mark, na.rm = TRUE)),
+      any(is.na(distance)) & abs(transect_meter_mark) > 25 & abs(transect_meter_mark) < 35 ~ abs(30-max(transect_meter_mark, na.rm = TRUE)),
+      any(is.na(distance)) & abs(transect_meter_mark) > 35 & abs(transect_meter_mark) < 45 ~ abs(40-max(transect_meter_mark, na.rm = TRUE)),
+      any(is.na(distance)) & abs(transect_meter_mark) > 45 & abs(transect_meter_mark) < 55 ~ abs(50-max(transect_meter_mark, na.rm = TRUE)),
+      any(is.na(distance)) & abs(transect_meter_mark) > 55 & abs(transect_meter_mark) < 65 ~ abs(60-max(transect_meter_mark, na.rm = TRUE)),
+      TRUE ~ max(distance, na.rm = TRUE)
+                              )) %>%
+  select(-transect_meter_mark) %>%
+  mutate(zoned = 1)
+
+  
+picnic.region <- data.frame(Region.Label = "Picnic", 
+                            Area = 7802)
+
+picnic.samples <- picnic %>%
+  distinct(transect_number, transect_orientation, `Transect Length`) %>%
+  rowwise() %>%
+  mutate(Sample.Label = paste0(transect_number,transect_orientation)) %>%
+  ungroup() %>%
+  mutate(Region.Label = "Picnic") %>%
+  rename("Effort" = "Transect Length") %>%
+  select(Sample.Label, Region.Label, Effort) %>%
+  mutate(Effort = case_when(Sample.Label == "1EW" ~ 70,
+                            TRUE ~ Effort)) %>%
+  filter(!is.na(Effort)) %>%
+  arrange(Sample.Label)
+
+picnic.obs <- picnic_duped %>%
+  filter(zoned == 1) %>%
+  rowwise() %>%
+  mutate(Sample.Label = paste0(transect_number,transect_orientation)) %>%
+  ungroup() %>%
+  distinct(plant_id, Sample.Label) %>%
+  mutate(Region.Label = "Picnic")
+
+```
+
+
+the distance will be different and I should be able to estimate it by subtracting the nearest meter marker
+```{r}
+
+detections <- picnic.data %>%
+  rename(object = plant_id)
+
+detections_all <- picnic.data <- picnic_duped %>%
+  filter(zoned == 0) %>%
+  mutate(detected = 1) %>%
+  mutate(distance = abs(distance_to_group)) %>%
+  rowwise() %>%
+  mutate(size = sum(c(number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group), na.rm = TRUE)) %>%
+  ungroup() %>%
+  dplyr::rename("observer" = "transect_orientation") %>%
+  rename(object = plant_id) %>%
+  dplyr::select(object, observer, detected, distance, size, zoned) %>%
+  bind_rows(detections)
+  
+##  <https://distancedevelopment.r-universe.dev/mrds/doc/manual.html#mrds-package> 
+## Independent observer configuration 
+in.mr.dist.EW <- ddf(
+                  dsmodel = ~ mcds(key = "hn", formula = ~ distance + size),
+                  # mrmodel = ~ glm(link = 'logit', formula = ~ distance + size),
+                  data = detections_all[detections_all$observer == "EW",], 
+                  method = "ds",
+                  meta.data = list(width = 3))
+
+plot(in.mr.dist.EW)
+
+in.mr.dist.NS <- ddf(
+                  dsmodel = ~ mcds(key = "hn", formula = ~ distance + size),
+                  # mrmodel = ~ glm(link = 'logit', formula = ~ distance + size),
+                  data = detections[detections$observer == "NS",], 
+                  method = "ds",
+                  meta.data = list(point = FALSE, binned = FALSE, width = 3))
+
+plot(in.mr.dist.NS)
+
+```
+
+
+Simple DS 
+```{r}
+
+library(rjags)
+library(R2jags)
+
+
+x <- detections_all$distance
+nind <- length(x)
+nz <- 500 
+y <- c(detections_all$detected, rep(0,nz))
+zoned <- c(detections_all$zoned, rep(NA, nz))
+B <- 3                                              # strip half-width
+
+## FIRST attempt without spatial of NS and EW
+jags.data <- list(nind = nind, nz = nz, x = x, y = y, B = B)
+
+
+modelPicnic <- 
+  paste("
+        model {
+        
+        # Priors  
+        alpha ~ dunif(-10,10)   # intercept for EW vs. NS
+        beta ~ dunif(-10,10)    # slope for EW vs. NS
+        sigma ~ dunif(0, 1000)  # Half-normal scale, too big for ours? 
+        # psi ~ dunif(0,1)        # Data Augmentation parameter (to include as real or not)
+        psi <- sum(lambda[])/(nind+nz) # psi is a derived parameter
+        
+        # Likelihood 
+        for(i in 1:(nind + nz)) {
+          # Process model
+          z[i] ~ dbern(psi)   # DA variables, zero if not 'real', 1 if included
+          x[i] ~ dunif(0,B)   # Distribution of distances
+          
+          # Observation model
+          logp[i] <- -((x[i]*x[i])/(2*sigma*sigma)) # Half-normal detection fct.
+          p[i] <- exp(logp[i])
+          mu[i] <- z[i] * p[site[i]]                # p depends on site 
+          y[i] ~ dbern(mu[i]) # Simple Bernoulli measurement error process for detection
+          site[i] ~ dcat(site.probs[1:nsites])      # site (EW or NS) membership of individuals
+        }
+          
+          
+        # Derived quantities
+        N <- sum(z[1:(nind+nz)])  # Population size of seen and augmented
+        D <- N/5400              # Density, with A = (100 * length(adddetection) * (2*strip.width)) meters^2
+        
+        }")
+
+writeLines(modelPicnic, "PicnicDSall.jags")
+
+## Inits function
+zst <- y   # Augmented start with observed value of y
+inits <- function(){ list(psi = runif(1), z = zst, sigma = runif(1, .4, 2))}  # Was 40 and 200 for 500 width
+
+## Parameters to save
+params <- c("N", "sigma", "D")
+# bd <- "C:/Users/deprengm/Downloads/winbugs143_unrestricted/winbugs14_full_patched/WinBUGS14/WinBUGS14/" # May have to adapt for your computer  
+ni <- 11000
+nt <- 2
+nb <- 1000
+nc <- 3
+## Call JAGS from R
+out2 <- jags(jags.data, inits, 
+             params, "PicnicDSall.jags", 
+             n.thin = nt, n.chains = nc, n.burnin = nb, n.iter = ni, 
+             working.directory = getwd())
+
+print(out2)
+
+```
+
+
+
+Nolan et al. 2023 Bobwhite   
+```{r}
+
+picnicMRDS <- 
+  paste("
+    model{
+    
+    #-------------------------------------------------------------------------------
+    # Distance - Peak Power linear relationship
+    #-------------------------------------------------------------------------------
+    
+     ### Priors ###
+       a0 ~ dnorm(76.45, 0.076)	  #intercept 
+       a1 ~ dnorm(-0.147, 1000)T(,0)  #growth rate
+       tau <- pow(sigma1, -2) 	  #inverse of variance
+       sigma1 ~ dexp(1/5)         
+    
+    
+     ### Likelihood ###
+       
+       # Model to estimate a0, a1 and SD for relationship between peak power and distance
+       # Using previously collected field data (Wilhite et al., 2020) (Ntest = 50) of peak power (pp_test) and distances (dist_test).
+       # Switched distance and pp so can predict power as function of distance - can use power data later
+          
+       	for (i in 1:Ntest){
+     	 	pp_test[i] ~ dnorm(Epower_test[i], tau)   	
+    		Epower_test[i] <- a0 + a1*dist_test[i]
+    		detprob_test[i] <- exp(-dist_test[i]^2/(2*sigma2^2))
+                    detected[i] ~ dbern(detprob_test[i])}
+    
+    
+    
+    #-------------------------------------------------------------------------------
+    # ARU Call Detection and Abundance Model
+    #-------------------------------------------------------------------------------
+    
+      ### Priors ###
+    
+        sigma2 ~ dnorm(200,0.01)
+        CallRate ~ dnorm(42.97, 0.5)    
+        fp ~ dnorm(0.165, 1000)T(0,)
+    
+      ### Likelihood ###
+        
+    	for(t in 1:nYear){
+    
+    			psi[t] ~ dunif(0,1) 
+    			
+        		for(i in 1:nSites[t]){
+    		    
+             	   for (j in 1:(M)){ 	 	
+    
+    
+          			dist[j,i,t] ~ dunif(0, dmax)                              
+          			negLogLike[j,i,t] = -log(2*dist[j,i,t] / dmax^2)
+          			zeros[j,i,t] ~ dpois(negLogLike[j,i,t])
+                           
+    			Epower[j,i,t] <- a0 + a1*dist[j,i,t]
+    			pp_real[j,i,t] ~ dnorm(Epower[j,i,t], tau) 
+    	           	p_ind[j,i,t] <- exp(-(dist[j,i,t]*dist[j,i,t])/(2*sigma2^2))  
+    			
+          			z[j,i,t] ~ dbern(psi[t])                                   
+          			mu[j,i,t] <- z[j,i,t]*p_ind[j,i,t]
+          			y[j,i,t] ~ dbern(mu[j,i,t])                               
+    
+    	          }#j
+    
+       	     NsiteFP[i,t] <- sum(z[,i,t])                             # Realized number of calls at each site, including false positives
+       	     Nsite[i,t] ~ dbin(1-fp, NsiteFP[i,t])                    # Realized number of calls at each site
+        	     ENsite[i,t] <- M*psi[t]*(1-fp)
+    
+    
+    		}#i
+    		
+    	N[t] <- sum(Nsite[1:nSites[t],t])                             # Realized number of calls in year t
+      	D.r[t] <- ((N[t]/CallRate)*10) / area[t]                      # Realized quail density
+            
+    
+    	    }#t
+    
+        Pdet2016 <- mean(p_ind[,1:33,1])                           # Mean probability of detection
+        Pdet2017 <- mean(p_ind[,34:48,2])                          # Mean probability of detection 
+        mean_Pdet <- mean(c(Pdet2016,Pdet2017))
+          
+    
+    }
+")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
 ### Observational Error
 
 ```{r echo=FALSE}
