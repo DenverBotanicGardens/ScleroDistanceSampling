@@ -536,7 +536,10 @@ detections_all <- picnic.data <- picnic_duped %>%
   dplyr::rename("observer" = "transect_orientation") %>%
   rename(object = plant_id) %>%
   dplyr::select(object, observer, detected, distance, size, zoned) %>%
-  bind_rows(detections)
+  bind_rows(detections) %>%
+  ## Three with zero size??
+  mutate(size = case_when(size ==0 ~ 1,
+                          TRUE ~ size))
   
 ##  <https://distancedevelopment.r-universe.dev/mrds/doc/manual.html#mrds-package> 
 ## Independent observer configuration 
@@ -561,22 +564,88 @@ plot(in.mr.dist.NS)
 ```
 
 
-Simple DS 
+Simple DS   
+Kery and Royle 2016 Ch 8     
+
+      1. Individual site membership as a categorical covariate      
+      2. specify site membership covariate as a categorical random variable with cell probabilities proportional to the Poisson mean parameter lambda_s    
+      3. Covariate effects directly on lambda - as in usual binomial and multinomial N-mixture models     
+      4. Covarites (size) on the detection model by specifying a linear model for log(sigma)  [they used wind speed as a site covariate; we have size for each individual as an observational covariate]          
+           i. y[i] ~ dbern(p[i])   relationship for individuals     
+           ii. p[i] ~ exp(-d[i]*d[i] / (2*sigma[site[i]]*sigma[site[i]]))   relationship between individuals and an individual-specific covariate distance and a site-specific paramter sigma[site[i]]       
+           iii. log(sigma[site[i]]) <- alpha0 + alpha1 * wind[site[i]]      
+ 
+Chapter 9 ppg. 463-487       
+
+      1. Aggregation - if one in group is detected, others in the group or the whole group will be detected.    
+           i. Violates key assumption that individuals are detected independently of one another       
+      2. Group structure with each indivdiual assigned to a stratum (a site, or NS EW)     
+           i. Individual level data set
+            site[i] ~ dcat(site.probs[])   # site.probs[] depend on lambda[site[i]] - the Poisson mean of the abundance N[site[i]]   
+            
+            for(s in 1:nsites){
+            N[s] ~ dpois(lambda[s])  
+            log(lambda[s]) <- beta0 + beta1*habitat[s]  
+            site.probs[s] <- lambda[s]/sum(lambda[])
+            }
+            
+       3. Using DA data augmentation, the Poisson abundance model implies a categorical model for population (site) membership of each individual. But site membership is confounded with inclusion (the psi parameter for being a real unseen plant) as teh intercept of that Poisson mean. Solution is a constraint:
+           i. psi <- sum(lambda[])/(nind+nz)    
+       4. To include cluster or group size as one cypte of individual covariate, with log-linear model (Marques and Buckland, 2003)
+           i. log(sigma[i]) = alpha0 + alpha1 * Covariate[i]     
+           ii. Group size unknown for unobserved groups, need model like truncated Poisson (or negative binomial) also truncated at 1: OR easier in BUGS to substract 1 from observed group sizes so possible vales are 0, 1, 2, .... 
+           iii. Note, not possible to accommodate indiviudal covariates in the unmarked package    
+       5. To get total groups and total population size, multiple DA varaible z[i]*(group.size+1)   
+           zg[i] <- z[i]*(groupsize[i] + 1)            
+           
+           
+???
+          N <- sum(z[]) 
+          D <- N/1560  ### 2160      ## 180 meters, half width is 6 meters
+          Ntot <- D * 6459           # the square meter density by the total m^2 of Picnic
+      
 ```{r}
 
 library(rjags)
 library(R2jags)
+library(AHMbook)
 
 
-x <- detections_all$distance
-nind <- length(x)
-nz <- 500 
-y <- c(detections_all$detected, rep(0,nz))
-zoned <- c(detections_all$zoned, rep(NA, nz))
-B <- 3                                              # strip half-width
+## What does habitat look like?  
+data <- simHDSg(type = "line")
+length(data$habitat) ## is a value for each site
+nrow(data$data)
 
-## FIRST attempt without spatial of NS and EW
-jags.data <- list(nind = nind, nz = nz, x = x, y = y, B = B)
+# Simulated data:
+#   site: integer
+#   y: all 1s for detected 
+#   u1: u2 are directions for point DS
+
+detections_all %>%
+  filter(detected == 1) %>%
+  filter(row_number() %in% 141:150)
+
+
+x <- detections_all$distance[detections_all$detected == 1]  # real data, only observed
+nind <- length(x)                                           # number of observed clusters
+B <- 3                                                      # half-strip width   
+nsites <- 2
+habitat <- as.factor(c("NS","EW"))                          # continuous variable for each site, like percent cover, I have categorical, should still work
+groupsize <- detections_all$size[detections_all$detected == 1] - 1    # so values follow a Poisson distribution and include zero, 1, 2, ...
+
+# Augument data by allowing for pseudogroups, including the distance data and individual covariate data
+M <- 400                                                    # Size of augmented data set
+nz <- M - nind
+y <- c(rep(1,nind), rep(0,nz))                              # capture indicator
+# zoned <- c(detections_all$zoned, rep(NA, nz))half-width
+site <- c(as.factor(detections_all$observer[detections_all$detected == 1]),rep(NA,nz))   # Don't know which site to add unobserved to
+d <- c(x,rep(NA,nz))
+groupsize <- c(groupsize, rep(NA, nz)) 
+zst <- y                                                    # starting values for data augmentation variable
+
+## Bundle data
+jags.data <- list(y = y,  B = B, nind = nind, nsites = nsites, d= d, habitat = habitat,
+                  site = site, nz = nz)
 
 
 modelPicnic <- 
@@ -584,24 +653,102 @@ modelPicnic <-
         model {
         
         # Priors  
-        alpha ~ dunif(-10,10)   # intercept for EW vs. NS
-        beta ~ dunif(-10,10)    # slope for EW vs. NS
-        sigma ~ dunif(0, 1000)  # Half-normal scale, too big for ours? 
-        # psi ~ dunif(0,1)        # Data Augmentation parameter (to include as real or not)
-        psi <- sum(lambda[])/(nind+nz) # psi is a derived parameter
+        alpha0 ~ dunif(-10,10)              # intercept for size
+        alpha1 ~ dunif(-10,10)              # slope for size
+        # beta0 ~ dunif(-10,10)               # intercept for habitat
+        # beta1 ~ dunif(-10,10)               # slope for habitat
         
-        # Likelihood 
-        for(i in 1:(nind + nz)) {
-          # Process model
-          z[i] ~ dbern(psi)   # DA variables, zero if not 'real', 1 if included
-          x[i] ~ dunif(0,B)   # Distribution of distances
+        beta1Dir ~ dunif(-10,10)            # offset for transect direction
+        mu_int ~ dnorm(0, 0.0001)           # mean hyperparamter for random intercept
+        sigma_int ~ dunif(0,100)            # SD hyperparameter for random intercepts
+        tau_int <- 1/(sigma_int * sigma_int)# precision
+        
+        ## Random effect of direction (strata)
+        for(s in 1:nsites){
+          beta0Dir[s] ~ dnorm(mu_int, tau_int)  # random intercepts
+        }
+        
+        lambda.group ~ dunif(-10,10)
+        
+        # psi is a derived parameter Data Augmentation for stratified populations where there are differences among populations
+        # psi <- sum(lambda[])/(nind+nz)
+        psi ~ dunif(0,1)       ## because we have two strata but are the same popuation so same chance of being included in either/both
+        
+        # Individual level model: observations and process  
+        for(i in 1:(nind+nz)){
+          z[i] ~ dbern(psi)                   # Data augmentation
+          d[i] ~ dunif(0,B)                   # uniform distribution of population 
+          groupsize[i] ~ dpois(lambda.group) # Group size is Poisson because we substracted one  
           
-          # Observation model
-          logp[i] <- -((x[i]*x[i])/(2*sigma*sigma)) # Half-normal detection fct.
-          p[i] <- exp(logp[i])
-          mu[i] <- z[i] * p[site[i]]                # p depends on site 
-          y[i] ~ dbern(mu[i]) # Simple Bernoulli measurement error process for detection
-          site[i] ~ dcat(site.probs[1:nsites])      # site (EW or NS) membership of individuals
+          log(sigma[i]) <- alpha0 + alpha1*groupsize[i] 
+          p[i] <- z[i]*exp(-d[i]*d[i]/(2*sigma[i]*sigma[i]))  # detection depends on distance; half-normal  
+          y[i] ~ dbern(p[i])
+          
+          site[i] ~ dcat(site.probs[1:nsites])          # Population distributed among sites, need to average, or treat at repeat measures
+          zg[i] <- z[i]*(groupsize[i]+1)                # number of individuals in a group
+          
+        }
+        
+        for(s in 1:nsites){
+          # Model for population size of groups 
+          N[s] ~ dpois(lambda[s])
+          log(lambda[s]) <- beta0Dir[s] + beta1Dir*habitat[s]   # no continuous covaraite, same habitat; factor direction
+          site.probs[s] <- lambda[s]/sum(lambda[])
+        }
+        
+        # Derived 
+        G <- sum(z[])                  # Total number of groups
+        Gavg <- sum(z[])/nsites        # Average number of groups 
+        Ntotal <- sum(zg[])            # Total population size 
+        Ntotavg <- sum(zg[])/nsites    # Average population size
+        
+        }")
+
+writeLines(modelPicnic, "Picnic_hn.jags")
+                  
+ni <- 6000
+nb <- 2000
+nt <- 2
+nc <- 3
+
+inits <- function(){list(alpha0=0, alpha1 = 0.5, beta0Dir=0, beta1Dir=0, z=zst)}
+params <- c("alpha0","alpha1","beta0Dir","beta1Dir","psi","Ntotal","Ntotavg","G","Gavg","lambda.group")
+
+out <- jags(jags.data, inits, params, "Picnic_hn.jags", n.thin = nt, n.chains = nc, n.burnin = nb, n.iter = ni)
+##??????????????
+        ## Loop over sites (EW and NS)
+        # for(s in 1:nsites){
+
+        # Likelihood 
+        # for(i in 1:(nind + nz)) {
+        #   # Process model
+        #   z[i] ~ dbern(psi)   # DA variables, zero if not 'real', 1 if included
+        #   x[i] ~ dunif(0,B)   # Distribution of distances, assuming they are uniformly distributed, here's where to put if not? Yes! I think
+        #   
+        #   # Observation model
+        #   p[i] <- exp(-d[i]*d[i]/(2*sigma[site[i]]*sigma[site[i]])) # Det. function
+        #   mu[i] <- z[i]*p[i]  # 'straw man' for WinBUGS???
+        #   # mu[i] <- z[i] * p[site[i]]                # p depends on site 
+        #   y[i] ~ dbern(mu[i]) # Simple Bernoulli measurement error process for detection
+        #   site[i] ~ dcat(site.probs[1:nsites])    # Population distribution among 'sites' so want to average this at the end
+        #   
+        #   # Observation model
+        #   # log(p[s,i]) <- -((x[i]*x[i])/(2*sigma*sigma)) # Half-normal detection fct.
+        #   # p[i] <- exp(logp[i])
+        #   
+        #   # Linear models for abundance and detection
+        #     for(s in 1:nsites){
+        #       # Model for abundance
+        #       N[s] ~ dpois(lambda[s])            # realized abundance at site EW and then NS
+        #       log(lambda[s]) <- alpha + beta*site[i]   # linear model abundance
+        #       site.probs[s] <- lambda[s]/sum(lambda[])
+        #       Navg <- mean(N[])
+        #     
+        #     # Linear model for detection
+        #       log(sigma[s]) <- alpha + beta*site[i]
+        #   }
+            
+          }
         }
           
           
@@ -618,7 +765,7 @@ zst <- y   # Augmented start with observed value of y
 inits <- function(){ list(psi = runif(1), z = zst, sigma = runif(1, .4, 2))}  # Was 40 and 200 for 500 width
 
 ## Parameters to save
-params <- c("N", "sigma", "D")
+params <- c("N", "Navg","sigma", "D")
 # bd <- "C:/Users/deprengm/Downloads/winbugs143_unrestricted/winbugs14_full_patched/WinBUGS14/WinBUGS14/" # May have to adapt for your computer  
 ni <- 11000
 nt <- 2
