@@ -723,13 +723,14 @@ out <- jags(jags.data, inits, params, "Picnic_hn.jags", n.thin = nt, n.chains = 
 ```
 
 
-Try one at a time  
+Try one at a time    
+EW gives me node inconsistent with parents, not NS. NS just doesn't work
 ```{r}
 
 picnic_simple <- detections_all %>%
   filter(detected == 1)
 
-x <- picnic_simple$distance[picnic_simple$observer == "NS"]
+x <- picnic_simple$distance[picnic_simple$observer == "EW"]
 B <- 3                                                         # Strip half-width
 nind <- length(x)
 
@@ -742,7 +743,7 @@ coveredarea <- picnic.samples %>%
   group_by(Dir) %>%
   summarise(Area = 6*sum(Effort))
 
-jags.data <- list(nind=nind, nz=nz, x=x, y=y, B=B, A = coveredarea$Area[coveredarea$Dir == "NS"])
+jags.data <- list(nind=nind, nz=nz, x=x, y=y, B=B, A = coveredarea$Area[coveredarea$Dir == "EW"])
 
 modelNSPicnic <- 
   paste("
