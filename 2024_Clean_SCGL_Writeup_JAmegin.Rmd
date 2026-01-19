@@ -526,7 +526,7 @@ the distance will be different and I should be able to estimate it by subtractin
 detections <- picnic.data %>%
   rename(object = plant_id)
 
-detections_all <- picnic.data <- picnic_duped %>%
+detections_all <- picnic_duped %>%
   filter(zoned == 0) %>%
   mutate(detected = 1) %>%
   mutate(distance = abs(distance_to_group)) %>%
@@ -541,17 +541,103 @@ detections_all <- picnic.data <- picnic_duped %>%
   mutate(size = case_when(size ==0 ~ 1,
                           TRUE ~ size))
   
+
+```
+
+# Final analysis of picnic for crossed design, still lacking the mark recapture but looks at two different directions
+Set up data from raw data, don't worry about duplicated for now  
+```{r}
+
+picnic.obs_table <- picnic %>%
+  mutate(detected = 1) %>%
+  mutate(distance = abs(distance_to_group)) %>%
+  rowwise() %>%
+  mutate(size = sum(c(number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group), na.rm = TRUE)) %>%
+  ungroup() %>%
+  dplyr::rename("Obs" = "transect_orientation") %>%
+  dplyr::select(Obs, detected, ## detected by fill all plant_id for each trans_ori
+         distance, size, transect_number) %>%
+  relocate(size, .after = distance) %>%
+  mutate(Sample.Label = paste0(transect_number, Obs)) %>%
+  mutate(object = row_number()) %>%
+  mutate(Region.Label = Obs)
+
+picnic.sample_table <- picnic.samples %>%
+  mutate(Region.Label = gsub("[^[:alpha:]]", "", Sample.Label))
+
+
+picnic.region_table <- coveredarea %>%
+  rename(Region.Label = Dir)
+```
+
+
+Miller et al 2019 Distance Sampling    
+```{r}
+
+### size
+pic.size <- ds(picnic.obs_table, trunc = 3, key = "hr", formula = ~ size,
+          region_table = picnic.region_table,
+          sample_table = picnic.sample_table)
+summary(pic.size)
+plot(pic.size)
+gof_ds(pic.size)  ## non significant goodness of fit, is a plausible model
+
+pic.size.hn <- ds(picnic.obs_table, trunc = 3, key = "hn", formula = ~ size,
+          region_table = picnic.region_table,
+          sample_table = picnic.sample_table)
+summary(pic.size.hn)
+plot(pic.size.hn)
+gof_ds(pic.size.hn)  ## non significant goodness of fit, is a plausible model
+
+
+### nothing 
+pic.nothing <- ds(picnic.obs_table, trunc = 3, key = "hr",
+          region_table = picnic.region_table,
+          sample_table = picnic.sample_table)
+summary(pic.nothing)
+plot(pic.nothing)
+gof_ds(pic.nothing) ## non significant goodness of fit, is a plausible model
+
+
+pic.nothing.hn <- ds(picnic.obs_table, trunc = 3, key = "hn",
+          region_table = picnic.region_table,
+          sample_table = picnic.sample_table)
+summary(pic.nothing.hn)
+plot(pic.nothing.hn)
+gof_ds(pic.nothing.hn) ## non significant goodness of fit, is a plausible model
+
+summarize_ds_models(pic.size, pic.size.hn, pic.nothing, pic.nothing.hn)
+### If AIC less than 2, then investigate multiple best models
+# Cramer-von Mises
+```
+
+
+
+```{r}
 ##  <https://distancedevelopment.r-universe.dev/mrds/doc/manual.html#mrds-package> 
 ## Independent observer configuration 
-in.mr.dist.EW <- ddf(
-                  dsmodel = ~ mcds(key = "hn", formula = ~ distance + size),
+detections_all_unique <- detections_all %>%
+  filter(detected == 1) %>%
+  mutate(observer = as.factor(observer)) %>%
+  ## if wish to have hours after sunrise, size here? have a non-linear effect on detectability, convert to factor
+  mutate(size = as.factor(size)) 
+  
+
+
+ 
+in.mr.dist <- ddf(
+                  dsmodel = ~ mcds(key = "hr", formula = ~ -observer + size),
                   # mrmodel = ~ glm(link = 'logit', formula = ~ distance + size),
-                  data = detections_all[detections_all$observer == "EW",], 
+                  data = detections_all_unique[,c("object","observer","distance","size")], # detections_all, # [detections_all$observer == "EW",], 
                   method = "ds",
                   meta.data = list(width = 3))
 
-plot(in.mr.dist.EW)
+plot(in.mr.dist)
 
+
+
+
+#####################################################################################
 in.mr.dist.NS <- ddf(
                   dsmodel = ~ mcds(key = "hn", formula = ~ distance + size),
                   # mrmodel = ~ glm(link = 'logit', formula = ~ distance + size),
@@ -562,6 +648,38 @@ in.mr.dist.NS <- ddf(
 plot(in.mr.dist.NS)
 
 ```
+
+
+Miller et al 2019 Distance sampling   
+```{r}
+
+library(Distance)
+
+coveredarea
+picnic.samples
+pic.data <- picnic.samples %>%
+  mutate(Dir = gsub("[^[:alpha:]]", "", Sample.Label)) %>%
+  mutate(Region.Label = paste0(Region.Label, Dir)) %>%
+  left_join(coveredarea)
+
+Picnic.det <- detections %>%
+  filter(detected == 1) %>%
+  left_join(coveredarea, by = c("observer" = "Dir"))
+
+
+Picnic.hr <- ds(Picnic.det[,c("distance","size","Area")], truncation = 3, key = "hr", formula = ~ size)
+summary(Picnic.hr)
+
+Picnic.strata <- Picnic.det %>%
+  rename("Dir" = "observer")
+
+
+## Detection was increased a bit 0.731 by being from NS than EW
+Picnic.hrDir <- ds(Picnic.strata[,c("distance","size","Area","Dir")], truncation = 3, key = "hr", formula = ~ size + Dir)
+summary(Picnic.hrDir)
+
+```
+
 
 
 Simple DS   
