@@ -715,57 +715,70 @@ inits <- function(){list(alpha0=0, alpha1 = 0.5, beta0Dir=0, beta1Dir=0, z=zst)}
 params <- c("alpha0","alpha1","beta0Dir","beta1Dir","psi","Ntotal","Ntotavg","G","Gavg","lambda.group")
 
 out <- jags(jags.data, inits, params, "Picnic_hn.jags", n.thin = nt, n.chains = nc, n.burnin = nb, n.iter = ni)
-##??????????????
-        ## Loop over sites (EW and NS)
-        # for(s in 1:nsites){
 
-        # Likelihood 
-        # for(i in 1:(nind + nz)) {
-        #   # Process model
-        #   z[i] ~ dbern(psi)   # DA variables, zero if not 'real', 1 if included
-        #   x[i] ~ dunif(0,B)   # Distribution of distances, assuming they are uniformly distributed, here's where to put if not? Yes! I think
-        #   
-        #   # Observation model
-        #   p[i] <- exp(-d[i]*d[i]/(2*sigma[site[i]]*sigma[site[i]])) # Det. function
-        #   mu[i] <- z[i]*p[i]  # 'straw man' for WinBUGS???
-        #   # mu[i] <- z[i] * p[site[i]]                # p depends on site 
-        #   y[i] ~ dbern(mu[i]) # Simple Bernoulli measurement error process for detection
-        #   site[i] ~ dcat(site.probs[1:nsites])    # Population distribution among 'sites' so want to average this at the end
-        #   
-        #   # Observation model
-        #   # log(p[s,i]) <- -((x[i]*x[i])/(2*sigma*sigma)) # Half-normal detection fct.
-        #   # p[i] <- exp(logp[i])
-        #   
-        #   # Linear models for abundance and detection
-        #     for(s in 1:nsites){
-        #       # Model for abundance
-        #       N[s] ~ dpois(lambda[s])            # realized abundance at site EW and then NS
-        #       log(lambda[s]) <- alpha + beta*site[i]   # linear model abundance
-        #       site.probs[s] <- lambda[s]/sum(lambda[])
-        #       Navg <- mean(N[])
-        #     
-        #     # Linear model for detection
-        #       log(sigma[s]) <- alpha + beta*site[i]
-        #   }
+
+
+
+
+```
+
+
+Try one at a time  
+```{r}
+
+picnic_simple <- detections_all %>%
+  filter(detected == 1)
+
+x <- picnic_simple$distance[picnic_simple$observer == "NS"]
+B <- 3                                                         # Strip half-width
+nind <- length(x)
+
+## Continuous data using DA  
+nz <- 200                       # Augment
+y <- c(rep(1, nind), rep(0, nz))
+x <- c(x, rep(NA,nz))  
+coveredarea <- picnic.samples %>%
+  mutate(Dir = gsub("[^[:alpha:]]", "", Sample.Label)) %>%
+  group_by(Dir) %>%
+  summarise(Area = 6*sum(Effort))
+
+jags.data <- list(nind=nind, nz=nz, x=x, y=y, B=B, A = coveredarea$Area[coveredarea$Dir == "NS"])
+
+modelNSPicnic <- 
+  paste("
+        model {
+          
+          # Priors
+          sigma ~ dunif(0,1000)   # Half-normal scale
+          psi ~ dunif(0,1)        # DA parameter
+          
+          # Likelihood
+          for(i in 1:(nind+nz)){
+            # Process model
+            z[i] ~ dbern(psi)     # DA variables
+            x[i] ~ dunif(0,B)     # Distribution of distances
             
+            # Observation model
+            logp[i] <- -((x[i]*x[i])/(2*sigma*sigma))    # Half-normal detection fct.
+            p[i] <- exp(logp[i])
+            mu[i] <- z[i]*p[i]    ## observation depends on includsion (z[i]) and detection distance (x[i]). Could add Direction? 
+            y[i] ~ dbern(mu[i])   ## Bernoulli measurement error process
           }
+          
+          # Derived quantities
+          N <- sum(z[1:(nind+nz)])       ## Population size, would need to reference to direction z[1:(nind[Dir[i]+nz[Dir[i]])] ?? Like family in LH
+          D <- N/A
         }
-          
-          
-        # Derived quantities
-        N <- sum(z[1:(nind+nz)])  # Population size of seen and augmented
-        D <- N/5400              # Density, with A = (100 * length(adddetection) * (2*strip.width)) meters^2
         
-        }")
+        ")
 
-writeLines(modelPicnic, "PicnicDSall.jags")
+writeLines(modelNSPicnic, "Picnic_NS.jags")
 
-## Inits function
-zst <- y   # Augmented start with observed value of y
-inits <- function(){ list(psi = runif(1), z = zst, sigma = runif(1, .4, 2))}  # Was 40 and 200 for 500 width
+zst <- y
+inits <- function(){ list(psi = runif(1), z=zst, sigma=runif(1,1,2))}
 
 ## Parameters to save
-params <- c("N", "Navg","sigma", "D")
+params <- c("N", "D","sigma")
 # bd <- "C:/Users/deprengm/Downloads/winbugs143_unrestricted/winbugs14_full_patched/WinBUGS14/WinBUGS14/" # May have to adapt for your computer  
 ni <- 11000
 nt <- 2
@@ -773,7 +786,7 @@ nb <- 1000
 nc <- 3
 ## Call JAGS from R
 out2 <- jags(jags.data, inits, 
-             params, "PicnicDSall.jags", 
+             params, "Picnic_NS.jags", 
              n.thin = nt, n.chains = nc, n.burnin = nb, n.iter = ni, 
              working.directory = getwd())
 
