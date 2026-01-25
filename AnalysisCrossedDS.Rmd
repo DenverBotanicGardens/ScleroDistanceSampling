@@ -200,16 +200,21 @@ pic_plot1 <- picnic_duped %>%
   filter(zoned ==1) %>% 
   ggplot( mapping = aes(x, y)) +
   geom_point(aes(color = transect_orientation), shape = 1) +
-  geom_point(data = filter(picnic_duped, duplicated(plant_id)), color = "blue") +
+  geom_point(data = filter(picnic_duped, duplicated(plant_id)), color = "black") +
   geom_segment(data = pic_lines, aes(x = x, y = y, xend = xend, yend = yend)) +
   geom_text_repel(data = pic_lines,
             aes( label = label),
             size = 2,
             ) +
   coord_equal(ratio = 1) +
-  scale_color_manual("", value = c())  # +
+  scale_color_manual("", values =  c("#D81B60","#1E88E5"))  # +
    # geom_text_repel( data = filter(picnic_duped, duplicated(plant_id)), aes( label = plant_id), size = 3, min.segment.length = 0.1)  # label the overlapping observations
+
+
 pic_plot1
+
+ggsave(filename = "PicnicPlotCrossed.jpg", pic_plot1 ,
+width=150, height=125,units='mm', dpi=300) 
 
 
 ```
@@ -259,11 +264,25 @@ picnic.data %>%
   summarise(n = n()) %>%
   filter(n > 1)
 
-# Was it that the size of cluster differed between the two observations? Maybe these aren't same? Not factored in to the finding double observations, only 
-picnic_duped %>%
-  filter(plant_id == 141) %>%
-  select(number_seedlings_in_group:number_reproductive_in_group, transect_number, transect_orientation, plant_id, zoned)
-  
+## Keep only one repeated plant_id per EW and NS pair.
+picnic.data1 <- picnic.data %>%
+  # group_by(plant_id, observer) %>%
+  # distinct(plant_id, .keep_all = TRUE) %>%
+  # arrange(-detected) %>%
+  # mutate(distance = case_when(detected == 0 ~ NA,
+  #                             TRUE ~ distance)) %>%
+  # ungroup() %>%
+  # group_by(plant_id) %>%
+  # fill(distance) %>%
+  # ungroup() %>%
+  rename("object" = "plant_id") %>%
+  arrange(object, observer) %>%
+  mutate(observer = as.factor(as.numeric(as.factor(observer))))
+
+picnic.data1 %>%
+  group_by(object) %>%
+  summarise(n = n()) %>%
+  filter(n > 1)
   
 picnic.region <- data.frame(Region.Label = "Picnic", 
                             Area = 7802)
@@ -292,4 +311,42 @@ picnic.obs <- picnic_duped %>%
 ```
 
 
+<https://distancesampling.org/mrds/articles/mrds-golftees.html>     
+Not appropraite for this data because the distances differ so not an estimate of how detection differs by distance
+```{r}
+
+## Fully independent   
+# Should break into distance categories which isn't the same for our data anyway, might be close for 
+fi.mr.dist <- ddf(method = "trial.fi", 
+                  mrmodel = ~ glm(link = 'logit', formula = ~ distance),
+                  data = picnic.data1,
+                  meta.data = list(width = 3))
+
+
+
+```
+
+
+
+```{r}
+
+ds.data <- picnic %>%
+  select(number_seedlings_in_group:number_reproductive_in_group, 
+         transect_number, transect_orientation,distance_to_group) %>%
+  rowwise() %>%
+  mutate(size = sum(c(number_seedlings_in_group, 
+                      number_vegetative_in_group, 
+                      number_reproductive_in_group), na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(repro = case_when(number_reproductive_in_group > 0 ~ 1, 
+                           TRUE ~ 0)) %>%
+  select(transect_number:repro) %>%
+  mutate(distance = abs(distance_to_group)) %>%
+  rename("strata" = "transect_orientation") %>%
+  mutate(strata = as.factor(strata)) %>%
+  select(-distance_to_group)
+  
+
+
+```
 
