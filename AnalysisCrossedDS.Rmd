@@ -1,0 +1,295 @@
+---
+title: "MRDS for Crossed SCGL"
+author: "Michelle DePrenger-Levin"
+date: "2026-01-25"
+output: html_document
+---
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# tidyverse contains both 'dyplr' and 'ggplot2'
+library(tidyverse)
+library(dplyr)
+library(janitor)
+library(ggrepel)
+
+setwd("C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling")
+scgl_obs <- read_csv("Data/distanceSampling_1.csv")
+scgl_trans_length <- read_csv("Data/transect_2.csv")
+
+# scgl_obs <- read_csv("data_raw/distanceSampling_1.csv")
+# scgl_trans_length <- read_csv("data_raw/transect_2.csv")
+
+scgl_obs <- clean_names(scgl_obs)
+```
+
+
+This function will be used later to find duplicate plants
+
+```{r test function}
+
+# `site` = a dataframe with relative (x,y) coords as seperate columns `x` & `y`, transect directions as `NS` & `EW`, and unique `plant_id' for each observation.
+# `b` = an allowance in meters(m) within which two observations (1 NS & 1 EW) will be considered the same observation  
+# Also account for differences in group size - for now, take larger
+crossed <- function(site, b){
+  
+ temp_site <-  site %>% 
+    rowwise() %>% 
+    mutate(coord = list(c(x,y)))
+  
+#chart all possible combinations of NS coordinates and EW coordinates
+ grid <-  expand.grid(EW = temp_site[which( site$transect_orientation == "EW"), "coord"]$coord,
+                      NS = temp_site[which( site$transect_orientation == "NS"), "coord"]$coord) %>% 
+    rowwise() %>% # to look for the differences between EW and NS points by row
+   #make a column of distances between points
+    mutate( dist = sqrt(sum((EW - NS)^2))) %>% 
+   #filter the combinations to only the ones within the supplied fuzziness `b`
+    filter(dist <= b)
+
+#appending to contain columns with EW plant_id's for each combination ## What if we reverse the order: NS first, then EW
+ grid <- left_join(grid, temp_site[, c("coord", "plant_id")],
+                   by = join_by(EW == coord)) %>%
+   mutate(EW_ID = plant_id, plant_id = NULL) %>%
+  #appending to contain columns with NS plant_id's for each combination
+   left_join(temp_site[, c("coord", "plant_id")], 
+                   by = join_by(NS == coord)) %>% 
+   mutate(NS_ID = plant_id, plant_id = NULL) 
+
+#checking for Id's with multiple matches.(Should be only one distinct NS observation for each distinct EW observation). Keep only the match with the least distance between points
+if(!(all(count(grid, NS_ID)$n >1) | all(count(grid, EW_ID)$n >1)) ){
+  grid <- filter(group_by(grid, NS_ID), dist == min(dist))
+  grid <- filter(group_by(grid, EW_ID), dist == min(dist))
+  }
+ 
+ #Within the original dataframe, change corresponding EW ID's to their NS counterparts
+ # temp_site <- left_join(temp_site, grid[, c("EW_ID", "NS_ID")], by = join_by(plant_id == EW_ID)) %>% 
+ #   mutate( plant_id = ifelse( !is.na(NS_ID), NS_ID, plant_id), NS_ID = NULL, coord = NULL) %>% 
+ #   ungroup()
+ 
+ ## More if swapped!
+ temp_site <- left_join(temp_site, grid[, c("EW_ID", "NS_ID")], by = join_by(plant_id == NS_ID)) %>% 
+   mutate( plant_id = ifelse( !is.na(EW_ID), EW_ID, plant_id), EW_ID = NULL, coord = NULL) %>% 
+   ungroup()
+ 
+ temp_site
+ 
+}
+
+# temp_site %>%
+#   distinct(plant_id) %>%
+#   summarise(n = n())
+
+site %>%
+  select(distance_to_group, transect_meter_mark, x, y)
+
+```
+
+
+Start here
+```{r}
+scgl <- scgl_obs[!(is.na(scgl_obs$transect_meter_mark|scgl_obs$distance_to_group)),] %>% #filtering NA's and outliers. 
+        filter(transect_meter_mark < 110, distance_to_group < 10) %>% 
+        mutate( object_id = as.factor(object_id),
+                site_name = as.factor(site_name),
+                transect_number = as.factor(transect_number))
+
+            
+scgl1 <- scgl %>% 
+   mutate(
+     # EW transect meter marks need to be * -1 because they were recorded as if in the(+,+) quadrant, but the mapping we will do is based on (-,+) quadrant. 
+    transect_meter_mark = case_when( 
+      transect_orientation == "EW" ~ transect_meter_mark * -1, 
+      TRUE ~ transect_meter_mark),
+    # making the 'direction to group' indicate if the 'distance to group' needs to be left/right of transect.  
+    distance_to_group = case_when(
+      direction_to_group == "-" ~ distance_to_group * -1, 
+      TRUE ~ distance_to_group ) 
+          )
+           
+
+# setting up the (X,Y) columns to then transform based on plot/shapefile analysis
+scgl1 <- scgl1 %>% 
+  mutate( x = case_when(transect_orientation == "NS" ~ distance_to_group, transect_orientation == "EW" ~ transect_meter_mark), 
+          y = case_when(transect_orientation == "EW" ~ distance_to_group, transect_orientation == "NS" ~ transect_meter_mark)) 
+
+scgl1 <- left_join(scgl1, scgl_trans_length[, c("Transect Length", "GlobalID")], by = join_by(parent_global_id == GlobalID))                
+                
+#filtering to sites
+fram <- scgl1 %>% 
+  filter(site_name == "12")
+
+picnic <- scgl1 %>% 
+  filter(site_name == "1"| site_name == "3")
+
+bridgeport <- scgl1 %>% 
+  filter(site_name == "10")
+
+oilpad <- scgl1 %>% 
+  filter(site_name == "11")
+
+```
+
+### Plotting individuals
+
+Involves transforming the coordinates to match the plot design.
+
+```{r picnic transform and plot}
+
+#describing the plot design
+pic_lines <- tibble( x = c(-20, -30, -40, -20, -10, -10, 0), 
+                     y = c(20, 10, 0, 20, 30, 40, 50), 
+                     xend = c(-20, -30, -40, -90, -70, -70, -50),
+                     yend = c(60, 76, 53, 20, 30, 40, 50),
+                     label = c("1NS", "2NS", "3NS", "1EW", "2EW", "3EW", "4EW"))
+                
+ picnic_1 <-  picnic %>% 
+   mutate( 
+    x = case_when(transect_orientation == "NS" & transect_number == "1" ~ x - 20, 
+                  transect_orientation == "NS" & transect_number == "2" ~ x - 30,
+                  transect_orientation == "NS" & transect_number == "3" ~ x - 40,
+                  transect_orientation == "EW" & transect_number == "1" ~ x - 20,
+                  transect_orientation == "EW" & transect_number == "2" ~ x - 10,
+                  transect_orientation == "EW" & transect_number == "3" ~ x - 10,
+                  transect_orientation == "EW" & transect_number == "4" ~ x
+                  ),
+    y = case_when(transect_orientation == "NS" & transect_number == "1" ~ y + 20, 
+                  transect_orientation == "NS" & transect_number == "2" ~ y + 10,
+                  transect_orientation == "NS" & transect_number == "3" ~ y ,
+                  transect_orientation == "EW" & transect_number == "1" ~ y + 20,
+                  transect_orientation == "EW" & transect_number == "2" ~ y + 30,
+                  transect_orientation == "EW" & transect_number == "3" ~ y + 40,
+                  transect_orientation == "EW" & transect_number == "4" ~ y + 50,
+                  )
+   )
+ 
+pic_plot <-  picnic_1 %>% 
+  ggplot( mapping = aes(x = x, y = y)) +
+  geom_point(aes(color = transect_orientation, shape = transect_orientation)) +
+  geom_segment(data = pic_lines, aes(x = x, y = y, xend = xend, yend = yend)) +
+  theme_bw() +
+  scale_color_discrete("Strata", type = c("#D81B60","#1E88E5"))+
+  scale_shape_manual("Strata", values = c(4,1)) +
+  coord_equal(ratio = 1)
+
+ggsave(filename = "PicnicPlot.jpg", pic_plot ,
+width=150, height=125,units='mm', dpi=300) 
+
+
+```
+
+### Marking Overlap
+
+```{r}
+
+#apply unique ID's
+picnic_id <- mutate(picnic_1, plant_id = c(1:nrow(picnic_1)))
+
+#filter to crossing zones
+## Increase to + or - 4 from 3 (that was real) to account for ones that are off due to non right angles?
+cD <- 4 ## cross distance
+picnic_id <- mutate(picnic_id, 
+                    zoned = case_when( 
+  c(rowSums(mapply( FUN = function(a, b){between(a, b-cD, b+cD)}, picnic_id[, "y"], c(20, 30, 40, 50))) +
+      rowSums(mapply( FUN = function(a, b){between(a, b-cD, b+cD)}, picnic_id[, "x"], c(-20, -30, -40)))) == 2 ~ 1,
+  TRUE ~ 0)) 
+
+
+#find duplicates within those zones; increase distance of fuzziness
+picnic_duped <- crossed(picnic_id, 1)
+
+pic_plot1 <- picnic_duped %>% 
+  filter(zoned ==1) %>% 
+  ggplot( mapping = aes(x, y)) +
+  geom_point(aes(color = transect_orientation), shape = 1) +
+  geom_point(data = filter(picnic_duped, duplicated(plant_id)), color = "blue") +
+  geom_segment(data = pic_lines, aes(x = x, y = y, xend = xend, yend = yend)) +
+  geom_text_repel(data = pic_lines,
+            aes( label = label),
+            size = 2,
+            ) +
+  coord_equal(ratio = 1) +
+  scale_color_manual("", value = c())  # +
+   # geom_text_repel( data = filter(picnic_duped, duplicated(plant_id)), aes( label = plant_id), size = 3, min.segment.length = 0.1)  # label the overlapping observations
+pic_plot1
+
+
+```
+
+Follow example and make data like mrds 
+Independent observer point independence model     
+io.fi: the mark-recapture component of the modelling  
+
+```{r}
+library(mrds)
+
+picnic.data <- picnic_duped %>%
+  filter(zoned == 1) %>%
+  mutate(detected = 1) %>%
+  mutate(distance = abs(distance_to_group)) %>%
+  rowwise() %>%
+  mutate(size = sum(c(number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group), na.rm = TRUE)) %>%
+  ungroup() %>%
+  dplyr::rename("observer" = "transect_orientation") %>%
+  dplyr::select(plant_id, observer, detected, ## detected by fill all plant_id for each trans_ori
+         distance, size, transect_meter_mark, transect_number) %>%
+  complete(nesting(plant_id,size),observer, fill = list(detected = 0)) %>% ## Keep only size and plantID that are in the data
+  relocate(size, .after = distance) %>%
+  ## When grouped, one might be missed, that's the row where distance missing
+  group_by(plant_id) %>%
+  ## each set of two observations
+  mutate(distance2 = case_when(detected == 0 & max(abs(transect_meter_mark), na.rm = TRUE) < 15 ~ abs(10-max(abs(transect_meter_mark), na.rm = TRUE)),
+                        detected == 0  & max(abs(transect_meter_mark), na.rm = TRUE) > 15 & max(abs(transect_meter_mark), na.rm = TRUE) < 25 ~ 
+                                                                                                 abs(20-max(abs(transect_meter_mark), na.rm = TRUE)),
+                        detected == 0  & max(abs(transect_meter_mark), na.rm = TRUE) > 25 & max(abs(transect_meter_mark), na.rm = TRUE) < 35 ~ 
+                                                                                                 abs(30-max(abs(transect_meter_mark), na.rm = TRUE)),
+                        detected == 0  & max(abs(transect_meter_mark), na.rm = TRUE) > 35 & max(abs(transect_meter_mark), na.rm = TRUE) < 45 ~ 
+                                                                                                 abs(40-max(abs(transect_meter_mark), na.rm = TRUE)),
+                        detected == 0  & max(abs(transect_meter_mark), na.rm = TRUE) > 45 & max(abs(transect_meter_mark), na.rm = TRUE) < 55 ~ 
+                                                                                                 abs(50-max(abs(transect_meter_mark), na.rm = TRUE)),
+                        detected == 0  & max(abs(transect_meter_mark), na.rm = TRUE) > 55 & max(abs(transect_meter_mark), na.rm = TRUE) < 65 ~ 
+                                                                                                 abs(60-max(abs(transect_meter_mark), na.rm = TRUE)),
+      TRUE ~ max(distance, na.rm = TRUE)
+                              )) %>%
+  select(plant_id:detected,size,distance2) %>%
+  rename("distance" = "distance2")
+
+
+## Shouldn't be two observations of same plant id in same line
+picnic.data %>%
+  group_by(plant_id, observer) %>%
+  summarise(n = n()) %>%
+  filter(n > 1)
+
+# Was it that the size of cluster differed between the two observations? Maybe these aren't same? Not factored in to the finding double observations, only 
+picnic_duped %>%
+  filter(plant_id == 141) %>%
+  select(number_seedlings_in_group:number_reproductive_in_group, transect_number, transect_orientation, plant_id, zoned)
+  
+  
+picnic.region <- data.frame(Region.Label = "Picnic", 
+                            Area = 7802)
+
+picnic.samples <- picnic %>%
+  distinct(transect_number, transect_orientation, `Transect Length`) %>%
+  rowwise() %>%
+  mutate(Sample.Label = paste0(transect_number,transect_orientation)) %>%
+  ungroup() %>%
+  mutate(Region.Label = "Picnic") %>%
+  rename("Effort" = "Transect Length") %>%
+  select(Sample.Label, Region.Label, Effort) %>%
+  mutate(Effort = case_when(Sample.Label == "1EW" ~ 70,
+                            TRUE ~ Effort)) %>%
+  filter(!is.na(Effort)) %>%
+  arrange(Sample.Label)
+
+picnic.obs <- picnic_duped %>%
+  filter(zoned == 1) %>%
+  rowwise() %>%
+  mutate(Sample.Label = paste0(transect_number,transect_orientation)) %>%
+  ungroup() %>%
+  distinct(plant_id, Sample.Label) %>%
+  mutate(Region.Label = "Picnic")
+
+```
+
+
+
