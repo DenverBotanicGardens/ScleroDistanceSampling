@@ -69,7 +69,7 @@ detect.hz <- make.detectability(key.function = "hr",
                                 shape.param = 2.43, 
                                 truncation = 6)
 
-## Where do the values for x come from?!?!
+
 summaryoutt <- lapply(seq(14,30, by = 2),function(x) {
   
   design <- make.design(transect.type = "line",    
@@ -113,13 +113,11 @@ summaryoutt <- lapply(seq(14,30, by = 2),function(x) {
              "DensitySD" =sum@individuals$D$sd.of.means)
   )
   
-  }) # end mclapply
-  # ) # end rbind
-# ) # end system.time
+  }) # end mclapply ## Where did the values for x come from?!?!
 
+save(summaryoutt, file = "C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/SimulatedData/EffortSimultion4CV")
 
-#RUN THIS, done
-#write.csv(summaryoutt,"~/Documents/Regis/R /Externship/Picnic/Tjuncsummary2.csv")
+TJsummary <- t(sapply(summaryoutt, "[[", 2))
 
 
 #PICNIC#
@@ -163,9 +161,11 @@ summaryoutp<-do.call(rbind,lapply(seq(6,8, by=2), function(x){
                sum@individuals$D$percent.bias, "Density SE" = sum@individuals$D$mean.se, "Density SD" =sum@individuals$D$sd.of.means)
 }))
 
-#write.csv(summaryoutp,"~/Documents/Regis/R /Externship/Picnic/Picnicsummary2.csv")
-#ran this simulation on different computer, ignore above
 
+
+
+###################################################################################
+## ???? ###########################################################################
 
 krent<- data.frame("habitat area"=c(40542,17450,9069.5,10429.7,51420.3,14298.1,24078.8,14951.9,3038.4,17827.9,17840.2,
                           15122.9,11942.2,4287.9,8408.7,15144.7), "macroplot area"=c(990,2000,560,392,720,960,1400,320,720,
