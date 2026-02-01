@@ -1,0 +1,377 @@
+---
+title: "MS_Sclero_Final"
+author: "Michelle DePrenger-Levin"
+date: "2026-01-30"
+output: html_document
+---
+
+Taken from Mary Strecker's analysis to a final version
+
+```{r}
+library(devtools)
+library(terra)
+library(raster)
+library(unmarked)
+library(dplyr)
+library(ggplot2)
+library(plyr)
+library(MuMIn)
+library(Distance)  
+library(dssd)
+```
+
+https://distancesampling.org/Distance/articles/species-covariate-distill.html  
+
+Covariate in modelling (Marques and Buckland, 2003)    
+     - key function shared across strata   
+     - scale parameter (sigma) differs between strata    
+     
+     
+```{r}
+#read in the data
+# setwd("~/.ssh/ScleroDistanceSampling")
+setwd("C:/Users/deprengm/ScleroDistanceSampling")
+DSdata <- read.csv("DistSamp_ScGl_JuneJuly.csv")
+
+## How big are our T-Junction and Picnic sites?
+picnic.region <- dssd::make.region(region.name = "Picnic", shape = "C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/Picnic/Tjunction.shp",
+                            units = "m")
+plot(picnic.region)
+## 6459 m^2??
+
+distsamp <- read.csv("C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/Data/distanceSampling_1.csv")
+head(distsamp)
+
+#get only data from certain dates
+DSdata$Date<-as.character(DSdata$Date)
+DSdata$Site<- as.character(DSdata$Site)
+#data cleaning, two spellings for picnic
+DSdata$Site[grep("icnic",DSdata$Site)] <- "Picnic"
+DSdata$Site[grep("unction", DSdata$Site)] <- "T-Junction"
+dates<- c("8/4/21","8/5/21","8/6/21", "8/1/21")
+DSdata<- DSdata %>%
+  filter(DSdata$Date %in% dates)  
+
+#add unique identifier
+DSdata$trans <- paste(DSdata$Site,DSdata$Line, sep = ".")
+# We're adding more same plot and same transect number so paste the date on too for a unique Transect identifier
+DSdata$trans <- paste(DSdata$trans, DSdata$Date, sep = ".")
+
+```
+
+
+Conventional Distance Sampling   
+Pooling and having covariates is important when not enough observations in a single strata
+```{r}
+
+#T-Junction n=25
+nrow(DSdata[DSdata$Site=="T-Junction",])
+#Picnic n=159
+nrow(DSdata[DSdata$Site=="Picnic",])
+
+```
+
+
+Covered area 
+```{r}
+## Total length of 180 meters by w = 6 for Picnic, total length of 120 half width is 6 for T-junction
+DSdata %>%
+  distinct(Site, Line, .keep_all = TRUE) %>%
+  group_by(Site) %>%
+  dplyr::summarise(TotalLength = sum(Length)*6*2)
+```
+
+
+Combined dataset
+```{r}
+
+DS<-DSdata
+hist(DS$Dist[DS$Site == "Picnic"], breaks = 10, col = "blue")
+hist(DS$Dist[DS$Site == "T-Junction"], breaks = 10, add = TRUE)
+#VISUALIZE 
+ggplot(DS, aes(Dist, colour = Site))+
+  geom_density()+
+  theme_bw()
+
+
+```
+
+
+```{r}
+DS.ordered <- DS[with(DS, order(DS$Site, DS$Date, DS$Dist)),]
+str(DS.ordered) # $trans is currently a character, could be anything. Setting as a factor restricts it to only the current values (character strings)
+DS.ordered$trans <- as.factor(DS.ordered$trans)
+
+## TRUNCATION - half-width is 6 meters
+
+#COMBINED
+DS.trunc <- DS[DS$Dist < 6,]
+#this is how it looks with 0.25 cm binning
+par(1,2)
+ggplot(DS.trunc, aes(Dist, fill =  Site))+
+  geom_histogram(bins=24)+
+  # facet_wrap(~Site)+
+  theme_bw() +
+  scale_fill_manual(values = c("#1F70B7","#D81B60"))
+
+# dev.off()
+
+cols <- c("#1F70B7","#D81B60")
+
+scatter.smooth(DS.trunc$Height[DS.trunc$Site == "T-Junction"],DS.trunc$Dist[DS.trunc$Site == "T-Junction"],
+               family = "gaussian", pch= 20, cex=.9, col = cols[2], lpars=list(lwd=3),
+               xlab="Plant Height",ylab="Distance (m)")
+
+scatter.smooth(DS.trunc$Height[DS.trunc$Site == "Picnic"],DS.trunc$Dist[DS.trunc$Site == "Picnic"], 
+               family = "gaussian", pch= 20, cex=.9, col = cols[1], lpars=list(lwd=3),
+               xlab="Plant Height",ylab="Distance (m)")
+
+scatter.smooth(DS.trunc$Height,DS.trunc$Dist, 
+               family = "gaussian", pch= 16, col = cols[as.numeric(as.factor(DS.trunc$Site))], cex=.9, lpars=list(lwd=3),
+               xlab="Plant Height",ylab="Distance (m)")
+
+ggplot(DS.trunc, aes(Site, Dist, color = Site)) +
+  geom_boxplot() +
+  theme_bw()
+
+DS.trunc %>%
+  mutate(Repro = case_when(FlFr > 0 ~ "R",
+                           TRUE ~ "V")) %>%
+ggplot(   aes(Repro, Dist)) +
+  geom_boxplot() +
+  theme_bw()
+
+DS.trunc %>%
+  mutate(Repro = case_when(FlFr > 0 ~ "R",
+                           TRUE ~ "V")) %>%
+  group_by(Repro) %>%
+  dplyr::summarise(n = n())
+  
+
+```
+
+
+Test multi-covariate with height and reproductive or not
+```{r}
+
+DS.mcds <- DS.trunc %>%
+  dplyr::rename("distance" = "Dist")
+
+sclero.hr <- ds(DS.mcds, transect = "line", key = "hr", truncation = 6,
+                adjustment = NULL, convert_units = c("meter", "meter", "square metre"))
+
+sclero.hr.height <- ds(DS.mcds, transect = "line", key = "hr", truncation = 6, formula = ~Height,
+                adjustment = NULL, convert_units = c("meter", "meter", "square metre"))
+
+
+sclero.hr.site <- ds(DS.mcds, transect = "line", key = "hr", truncation = 6, formula = ~Site,
+                adjustment = NULL, convert_units = c("meter", "meter", "square metre"))
+
+
+sclero.hr.site.height <- ds(DS.mcds, transect = "line", key = "hr", truncation = 6, formula = ~Site + Height,
+                adjustment = NULL, convert_units = c("meter", "meter", "square metre"))
+
+summarize_ds_models(sclero.hr, sclero.hr.height, sclero.hr.site, sclero.hr.site.height)
+
+
+```
+
+
+Select covariates   
+  - strata as site, assume same shape but the scale value will differ by site
+```{r}
+# See only larger individuals at farther distances
+ggplot(DSdata, aes(Dist, Width, color = Site ))+
+  geom_point()
+
+```
+
+
+```{r}
+#format the data for umf, set correct truncation and binning
+yDat <- formatDistData(DS.trunc, distCol = "Dist", transectNameCol = "trans", dist.breaks = seq(0,6,0.25))
+yDat.Pic <- formatDistData(DS.trunc[DS.trunc$Site == "Picnic",], distCol = "Dist", transectNameCol = "trans", dist.breaks = seq(0,6,0.25))
+
+#COVARIATES aka cover; percent plant cover from LPI
+table(DS$trans, DS$Length)
+identical(row.names(table(DS$trans, DS$Length)), row.names(yDat))
+# get the column names (the lengths) in the order of the rows, when >0
+x <- table(DS$trans, DS$Length)[1,]
+
+siteCovs <- data.frame(Site = unlist(lapply(row.names(yDat), function(x) strsplit(x,"[.]")[[1]][1])),
+                       length = 
+                         c(apply(table(DS$trans, DS$Length), 1, function(x) as.numeric(as.character(names(x[x>0]))))))
+siteCovs$Cover <- ifelse(siteCovs$Site %in% "Picnic", 0.175633,0.480958)
+
+
+
+#format into umf format
+umf <- unmarkedFrameDS(y = as.matrix(yDat), 
+                       siteCovs = siteCovs,
+                       survey = "line",
+                       dist.breaks = seq(0,6,0.25),
+                       tlength= siteCovs$length, 
+                       unitsIn = "m")
+summary(umf)
+#VISUALIZE
+ggplot(DS, aes(Dist, fill =  Site))+
+  geom_histogram()+
+  facet_wrap(~Site)+
+  theme_bw()
+
+
+umfPic <- unmarkedFrameDS(y = as.matrix(yDat.Pic), 
+                       siteCovs = siteCovs[siteCovs$Site == "Picnic",],
+                       survey = "line",
+                       dist.breaks = seq(0,6,0.25),
+                       tlength= siteCovs$length[siteCovs$Site == "Picnic"], 
+                       unitsIn = "m")
+                       
+```
+     
+     
+Can't use individual covaraiates because broken into distance bins  
+```{r}
+###################################################### MODELS #########################################################
+
+m.half <- distsamp(~1 ~1, umf, keyfun="halfnorm", output="density", unitsOut="kmsq")
+predict(m.half, type = "state")[1,]/1000000
+m.halfPic <- distsamp(~1 ~1, umfPic, keyfun="halfnorm", output="density", unitsOut="kmsq")
+predict(m.halfPic, type = "state")[1,]
+
+m.haz <- distsamp(~1 ~1, umf, keyfun="hazard", output="density", unitsOut="kmsq")
+predict(m.haz, type = "state")[1,]/1000000
+m.hazPic <- distsamp(~1 ~1, umfPic, keyfun="hazard", output="density", unitsOut="kmsq")
+predict(m.hazPic, type = "state")[1,]/1000000
+
+m.uni <- distsamp(~1 ~1, umf, keyfun="uniform", output="density", unitsOut="kmsq")
+#M.HALF AIC =
+m.half # AIC: 630.954 
+#m.haz AIC = 
+m.haz  # AIC: 593.3394 
+#m.uni AIC = 
+m.uni  # AIC: 842.1926
+# library(MuMIn)
+# model.sel(m.half,m.haz,m.uni)
+AIC(m.uni, m.half, m.haz)
+
+#USING COVER AS A COVARIATE; detection and then abundance
+m.haz.1.cover <- distsamp(~1 ~Cover, umf, keyfun="hazard", output="density", unitsOut="kmsq")      # AIC: 572.3241
+m.haz.1.cover2 <- distsamp(~Cover ~1, umf, keyfun="hazard", output="density", unitsOut="kmsq")     # AIC: 583.327 
+m.haz.1.cover3 <- distsamp(~Cover ~Cover, umf, keyfun="hazard", output="density", unitsOut="kmsq") # AIC: 574.307 
+#used 0 here as a start value for cover, 0 behaves the same as -1 and 0.5, they all give the same answer.
+
+predict(m.haz, type = "det")[1,]   ## The hazard rate shape paramter
+predict(m.haz, type = "scale")[1,] ## The hazard rate shape parameter
+
+# here<- data.frame(model.sel(m.haz,m.haz.1.cover,m.haz.1.cover2,m.haz.1.cover3, m.uni,m.half))
+# here$delta
+
+#BEST ???
+m.haz.1.cover
+exp(-4.418716)
+exp(-1.655486)
+
+```
+ 
+ 
+ 
+```{r}
+#################################################################################################### Add this in
+## <https://cran.r-project.org/web/packages/unmarked/vignettes/distsamp.html> 
+# Number of individuals in sampled plots with uncertainty of N.hat
+site.level.density <- predict(m.haz, type = "state")$Predicted
+plotArea.inKMSQ <- 6459.249/1000000  ## ArcPro layer says 7802.586443	AND	7806.717569???
+site.level.abundance <- site.level.density * plotArea.inKMSQ
+
+getN.hat <- function(fit) {
+  d <- predict(fit, type = "state")$Predicted[1]
+  a <- d * plotArea.inKMSQ
+  N.hat <- c(N.hat = sum(a))
+  return(N.hat)
+}
+pb <- parboot(m.haz, statistic=getN.hat, nsim=25)
+pb
+plot(pb)
+
+
+#USING SITE AS A COVARIATE
+m.haz.1.site <- distsamp(~1 ~Site, umf, keyfun="hazard", output="density", unitsOut="kmsq") 
+m.haz.1.site2 <- distsamp(~Site ~1, umf, keyfun="hazard", output="density", unitsOut="kmsq") 
+m.haz.1.site3 <- distsamp(~Site ~Site, umf, keyfun="hazard", output="density", unitsOut="kmsq") 
+m.haz.1.site #improves here
+here<- data.frame(model.sel(m.haz,m.haz.1.cover,m.haz.1.cover2,m.haz.1.cover3, m.uni,m.half))
+here$delta
+
+library(MuMIn)
+model.sel(m.haz,m.haz.1.site,m.haz.1.site2,m.haz.1.site3)
+model.sel(m.haz,m.uni,m.half)
+
+exp(((confint(m.half, type="state"))))
+
+```
+ 
+ 
+```{r}
+
+# https://cran.r-project.org/web/packages/unmarked/vignettes/distsamp.html
+#DETECTION PROB
+## Probability Density Function of observations (not the detection probability)
+jpeg("C:/Users/deprengm/Denver Botanic Gardens/Conservation - General/AllProjectsBySpecies/Sclerocactus-glaucus/Sclerocactus-glaucus_Manuscripts/2026_Ecological-Modelling/Images/ProbDensity.jpg",
+     width = 200, height = 100, units = "mm",res=300)
+
+par(mfrow = c(1,2))       
+hist(m.haz.1.cover, xlab = "Distance (m)", ylab = "Probability density", main = "")
+plot(function(x) gxhaz(x, shape=2.58, scale=1.16), 0, 6, xlab="Distance (m)",ylab="Detection probability", cex.lab=1,
+     cex.axis=1.2, las=1,lwd=2)
+
+dev.off()
+```
+
+```{r}
+## Indivdiual covariates height and width have little impact. 
+library(Distance)
+conversion.factor <- convert_units("Metre", NULL, "square metre")
+
+DS.Picnic <- DS.trunc %>%
+  filter(Site == "Picnic") %>%
+  dplyr::rename("distance" = "Dist")
+
+scglPic.unif <- ds(DS.Picnic, transect = "line", key = "unif", 
+                 adjustment = NULL, convert_units = conversion.factor)
+
+scglPic.hn <- ds(DS.Picnic, transect = "line", key = "hn", 
+                   adjustment = NULL, convert_units = conversion.factor)
+
+summary(scglPic.hn)
+
+scglPic.hr <- ds(DS.Picnic, transect = "line", key = "hr", 
+                 adjustment = NULL, convert_units = conversion.factor)
+
+scglPic.height <- ds(DS.Picnic, transect = "line", key = "hr", formula = ~ Height,
+                     adjustment = NULL, convert_units = conversion.factor)
+
+scglPic.width <- ds(DS.Picnic, transect = "line", key = "hr", formula = ~ Width,
+                    adjustment = NULL, convert_units = conversion.factor)
+
+
+scglPic.widthHeight <- ds(DS.Picnic, transect = "line", key = "hr", formula = ~ Width + Height,
+                    adjustment = NULL, convert_units = conversion.factor)
+
+AIC(scglPic.unif,scglPic.hr, scglPic.hn,scglPic.height, scglPic.width, scglPic.widthHeight)
+
+plot(scglPic.height, pdf = TRUE, main = "Hazard rate with height of plant", showpoints=FALSE)
+
+plot(scglPic.width, #pdf = TRUE, 
+     main = "Hazard rate with width of plant", showpoints=FALSE)
+plot(scglPic.unif, pdf = TRUE, main = "Uniform", showpoints=FALSE)
+
+plot(scglPic.hr, pdf = TRUE, main = "Hazard rate", showpoints=FALSE)
+
+# Pic.distsamp.hn <- distsamp(~1 ~1, DS.Picnic, keyfun = "halfnorm",
+#                             output = "abund",
+#                             unitsOut = "kmsq")
+
+```
+ 
+ 
