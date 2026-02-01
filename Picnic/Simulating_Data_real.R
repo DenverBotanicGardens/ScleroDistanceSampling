@@ -1,5 +1,6 @@
 library(spam)
-library(DSsim)
+# library(DSsim)  Need to transition to dsims
+library(dsims)
 library(shapefiles)
 library(raster)
 library(terra)
@@ -7,14 +8,15 @@ library(parallelly)
 library(devtools)
 
 
-setwd("~/.ssh/ScleroDistanceSampling/Picnic")
+# setwd("~/.ssh/ScleroDistanceSampling/Picnic")
+setwd("C:/Users/deprengm/ScleroDistanceSampling/Picnic")
+
 
 # Create a polgon
 tjunc <- read.shapefile("Tjunction")
 picnic <- read.shapefile("Picnic")
 
-library(terra)
-x <- vect('Tjunction.shp')
+x <- terra::vect('Tjunction.shp')
 tarea<-expanse(x, unit="m") #6455 m^2
 tareakm<- tarea/1000000
 
@@ -30,9 +32,9 @@ ttotalpop<- 39393*tareakm #254.32 individuals
 ptotalpop<- 153003*pareakm #1193.82 individuals
 
 # Create the survey region
-tregion <-make.region(region.name = "Survey Region", units = "m",shapefile = tjunc)
-plot(tregion, plot.units = "km")
-str(tregion)
+tregion <-make.region(region.name = "Survey Region", units = "m",
+                      shape = "C:/Users/deprengm/ScleroDistanceSampling/Picnic/Tjunction.shp")
+plot(tregion)
 
 pregion <-make.region(region.name = "Survey Region", units = "m",shapefile = picnic)
 plot(pregion, plot.units = "km")
