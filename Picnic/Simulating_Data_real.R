@@ -35,17 +35,20 @@ ptotalpop<- 153003*pareakm #1193.82 individuals
 tregion <-make.region(region.name = "Survey Region", units = "m",
                       shape = "C:/Users/deprengm/ScleroDistanceSampling/Picnic/Tjunction.shp")
 plot(tregion)
+tregion@area  ## 6459.249
 
-pregion <-make.region(region.name = "Survey Region", units = "m",shapefile = picnic)
-plot(pregion, plot.units = "km")
+pregion <-make.region(region.name = "Survey Region", units = "m",
+                      shape = "C:/Users/deprengm/ScleroDistanceSampling/Picnic/Picnic.shp")
+plot(pregion)
+pregion@area  # 7806.718
 
 
 # Create the density surface
-tdensity <- make.density(region.obj = tregion,
+tdensity <- make.density(tregion,
                          x.space = 1, 
                          y.space = 1, 
                          constant = 1)
-pdensity <- make.density(region.obj = pregion, 
+pdensity <- make.density(pregion, 
                          x.space = 1, 
                          y.space = 1, 
                          constant = 1)
@@ -53,53 +56,66 @@ pdensity <- make.density(region.obj = pregion,
 # Plot the density surface (can be in 'm' or 'km')
 # Note that if converting units the values of the density surface are also converted
 # In this example they are plotted in animals per square km instead of per square m.
-plot(tdensity, style = "blocks", plot.units = "km")
-plot(tregion, add = TRUE)
-
-plot(pdensity, style = "blocks", plot.units = "km")
-plot(pregion, add = TRUE)
+plot(tdensity)
+plot(tregion)
 
 #DETECTABILITY FUNCTION
-tpop.desc <- make.population.description(region.obj = tregion, 
-                                        density.obj = tdensity,
+tpop.desc <- make.population.description(region = tregion, 
+                                        density = tdensity,
                                         N= 254.32)
 
-detect.hz <- make.detectability(key.function = "hr", scale.param =0.981, shape.param = 2.43, truncation = 6)
+detect.hz <- make.detectability(key.function = "hr", 
+                                scale.param =0.981, 
+                                shape.param = 2.43, 
+                                truncation = 6)
 
-system.time(summaryoutt<-do.call(rbind,mclapply(6,function(x) {
+## Where do the values for x come from?!?!
+summaryoutt <- lapply(seq(14,30, by = 2),function(x) {
+  
   design <- make.design(transect.type = "line",    
-                        design.details = c("parallel","systematic"),
-                        region.obj = tregion,
-                        spacing = x)
-  ttransects <- generate.transects(design, region = tregion)
-  sum(ttransects@sampler.info$length)
-  plot(tregion, plot.units = "km")
-  plot(ttransects, col = 4, lwd = 2)
+                        design = "systematic",
+                        region = tregion,
+                        spacing = x,
+                        truncation = 6)
+  
+  ttransects <- generate.transects(design)
+  
+  plot(tregion, ttransects)
   
   #analysis #NEXT TO LOOK AT
-  ddf.analyses <- make.ddf.analysis.list(dsmodel = list(~cds(key = "hn", formula = ~1),
-                                                        ~cds(key = "hr", formula = ~1)), 
-                                         method = "ds",
-                                         criteria = "AIC",
-                                         truncation = 6)
+  ddf.analyses <- make.ds.analysis(dfmodel = list(~1, ~1),
+                                   key = c("hn", "hr"),
+                                   criteria = "AIC",
+                                   truncation = 6)
   
-  tsim <- make.simulation(reps = 2, 
-                          region.obj = tregion,
-                          design.obj = design,
-                          population.description.obj = tpop.desc,
-                          detectability.obj = detect.hz,
-                          ddf.analyses.list = ddf.analyses)
-  check.sim.setup(tsim)
+  tsim.cov <- make.simulation(reps = 999,
+                              design = design,
+                              population.description = tpop.desc,
+                              detectability = detect.hz,
+                              ds.analysis = ddf.analyses)
+  tsurvey <- run.survey(tsim.cov)
+  plot(tsurvey,tregion)
   
-  tsim <- run(tsim)
-  sum<-summary(tsim, description.summary = TRUE)
-  data.frame(spacing=x, "Mean Area Covered"= sum@individuals$summary$mean.Cover.Area, 
-             "Mean Effort" = sum@individuals$summary$mean.Effort, "True Abundance" = sum@individuals$N$Truth,
-             "Mean Abundance Estimate" = sum@individuals$N$mean.Estimate, "Abundance Bias" = sum@individuals$N$percent.bias,
-             "Mean Abundance SE" = sum@individuals$N$mean.se, "Mean Abundance SD" = sum@individuals$N$sd.of.means, "True Density"=
-              sum@individuals$D$Truth, "Density Estimate" = sum@individuals$D$mean.Estimate, "Density Bias" =
-              sum@individuals$D$percent.bias, "Density SE" = sum@individuals$D$mean.se, "Density SD" =sum@individuals$D$sd.of.means)
-})))
+  tsim <- run.simulation(simulation = tsim.cov, run.parallel = TRUE)
+  sum <- summary(tsim)
+  
+  out <- list(tsim, 
+  data.frame(spacing=x, "MeanAreaCovered"= sum@individuals$summary$mean.Cover.Area, 
+             "MeanEffort" = sum@individuals$summary$mean.Effort, 
+             "TrueAbundance" = sum@individuals$N$Truth,
+             "MeanAbundanceEstimate" = sum@individuals$N$mean.Estimate, 
+             "AbundanceBias" = sum@individuals$N$percent.bias,
+             "MeanAbundanceSE" = sum@individuals$N$mean.se, "MeanAbundanceSD" = sum@individuals$N$sd.of.means, 
+             "TrueDensity"=sum@individuals$D$Truth, 
+             "DensityEstimate" = sum@individuals$D$mean.Estimate, 
+             "DensityBias" = sum@individuals$D$percent.bias, 
+             "DensitySE" = sum@individuals$D$mean.se, 
+             "DensitySD" =sum@individuals$D$sd.of.means)
+  )
+  
+  }) # end mclapply
+  # ) # end rbind
+# ) # end system.time
 
 
 #RUN THIS, done
