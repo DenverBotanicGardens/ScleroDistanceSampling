@@ -115,53 +115,83 @@ summaryoutt <- lapply(seq(14,30, by = 2),function(x) {
   
   }) # end mclapply ## Where did the values for x come from?!?!
 
-save(summaryoutt, file = "C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/SimulatedData/EffortSimultion4CV")
+save(summaryoutt, file = "C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/SimulatedData/EffortSimultion4CVTJunc")
 
-TJsummary <- t(sapply(summaryoutt, "[[", 2))
+
+sapply(summaryoutt, "[[", 1)[[1]]
+
+TJsummary <- as.data.frame(t(sapply(summaryoutt, "[[", 2)))
+names(TJsummary)
+
+TJsum <- as.data.frame(do.call(cbind, lapply(1:13, function(x) unlist(TJsummary[,x]) )))
+names(TJsum) <- names(TJsummary)
+TJsum
 
 
 #PICNIC#
-ppop.desc <- make.population.description(region.obj = pregion, 
-                                        density.obj = pdensity, 
-                                        N =1193.82)
+ppop.desc <- make.population.description(region = pregion, 
+                                        density = pdensity, 
+                                        N = 1193.82)
 
-detect.hz <- make.detectability(key.function = "hr", scale.param =0.981, shape.param = 2.43, truncation = 6)
+### Pooling robust - same for T-Junction and Picnic
+# detect.hz <- make.detectability(key.function = "hr",
+#                                  scale.param =0.981,
+#                                  shape.param = 2.43,
+#                                  truncation = 6)
 
-summaryoutp<-do.call(rbind,lapply(seq(6,8, by=2), function(x){
+summaryoutp <- lapply(seq(14,30, by = 2),function(x) {
+  
   design <- make.design(transect.type = "line",    
-                        design.details = c("parallel","systematic"),
-                        region.obj = pregion,
-                        spacing = x)
-  ptransects <- generate.transects(design, region = pregion)
-  plot(pregion, plot.units = "km")
-  plot(ptransects, col = 4, lwd = 2)
+                        design = "systematic",
+                        region = pregion,
+                        spacing = x,
+                        truncation = 6)
+  
+  ptransects <- generate.transects(design)
+  
+  plot(pregion, ptransects)
   
   #analysis #NEXT TO LOOK AT
-  ddf.analyses <- make.ddf.analysis.list(dsmodel = list(~cds(key = "hn", formula = ~1),
-                                                        ~cds(key = "hr", formula = ~1)), 
-                                         method = "ds",
-                                         criteria = "AIC",
-                                         truncation = 6)
+  ddf.analyses <- make.ds.analysis(dfmodel = list(~1, ~1),
+                                   key = c("hn", "hr"),
+                                   criteria = "AIC",
+                                   truncation = 6)
   
-  psim <- make.simulation(reps = 10, 
-                          region.obj = pregion,
-                          design.obj = design,
-                          population.description.obj = ppop.desc,
-                          detectability.obj = detect.hz,
-                          ddf.analyses.list = ddf.analyses)
-  check.sim.setup(psim)
+  psim.cov <- make.simulation(reps = 999,
+                              design = design,
+                              population.description = ppop.desc,
+                              detectability = detect.hz, # same for both, pooled robust
+                              ds.analysis = ddf.analyses)
   
-  psim <- run(psim)
-  sum<-summary(psim, description.summary = F)
-  data.frame(spacing=x, "Mean Area Covered"= sum@individuals$summary$mean.Cover.Area, 
-             "Mean Effort" = sum@individuals$summary$mean.Effort, "True Abundance" = sum@individuals$N$Truth,
-             "Mean Abundance Estimate" = sum@individuals$N$mean.Estimate, "Abundance Bias" = sum@individuals$N$percent.bias,
-             "Mean Abundance SE" = sum@individuals$N$mean.se, "Mean Abundance SD" = sum@individuals$N$sd.of.means, "True Density"=
-               sum@individuals$D$Truth, "Density Estimate" = sum@individuals$D$mean.Estimate, "Density Bias" =
-               sum@individuals$D$percent.bias, "Density SE" = sum@individuals$D$mean.se, "Density SD" =sum@individuals$D$sd.of.means)
-}))
+  psurvey <- run.survey(psim.cov)
+  plot(psurvey, pregion)
+  
+  psim <- run.simulation(simulation = psim.cov, run.parallel = TRUE)
+  sum<-summary(psim)
+  
+  out <- list(psim, 
+              data.frame(spacing=x, "MeanAreaCovered"= sum@individuals$summary$mean.Cover.Area, 
+                         "MeanEffort" = sum@individuals$summary$mean.Effort, 
+                         "TrueAbundance" = sum@individuals$N$Truth,
+                         "MeanAbundanceEstimate" = sum@individuals$N$mean.Estimate, 
+                         "AbundanceBias" = sum@individuals$N$percent.bias,
+                         "MeanAbundanceSE" = sum@individuals$N$mean.se, "MeanAbundanceSD" = sum@individuals$N$sd.of.means, 
+                         "TrueDensity"=sum@individuals$D$Truth, 
+                         "DensityEstimate" = sum@individuals$D$mean.Estimate, 
+                         "DensityBias" = sum@individuals$D$percent.bias, 
+                         "DensitySE" = sum@individuals$D$mean.se, 
+                         "DensitySD" =sum@individuals$D$sd.of.means)
+              )
+})
 
+save(summaryoutp, file = "C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling/SimulatedData/EffortSimultion4CVPicnic")
 
+Psummary <- as.data.frame(t(sapply(summaryoutp, "[[", 2)))
+names(Psummary)
+
+Psum <- as.data.frame(do.call(cbind, lapply(1:13, function(x) unlist(Psummary[,x]) )))
+names(Psum) <- names(Psummary)
+Psum
 
 
 ###################################################################################
@@ -207,25 +237,83 @@ both<-rbind(Tjunc,Picnic)
 
 ###FIX
 library(car)
-plot(x=c(Tjunc$Mean.Area.Covered,Picnic$Mean.Area.Covered), y=c(Tjunc$Mean.Abundance.SD,Picnic$Mean.Abundance.SD),
-     pch=19,ylim=c(30,200),ylab="SD of Abundance Estimate", 
-     xlab=expression("Mean Area Covered (m^2)"), col=rep(c("dark green","pale green"),each=13))
-legend('topright', c("Picnic", "T-Junction"),col=c("pale green", "dark green"), lty=1, cex=1, lwd=2)
-text(y=Tjunc$Mean.Abundance.SD, x=Tjunc$Mean.Area.Covered, Tjunc$spacing, pos=3, col="dark green")
-text(y=Picnic$Mean.Abundance.SD, x=Picnic$Mean.Area.Covered, Picnic$spacing, pos=3, col="green")
-abline(lm(Tjunc$Mean.Abundance.SD~Tjunc$Mean.Area.Covered))
+library(dplyr)
+library(tidyr)
+library(ggplot2)
 
-both$CV<- both$Mean.Abundance.SD/both$Mean.Abundance.Estimate
+Psum %>%
+  bind_rows(TJsum) %>%
+  mutate(Site = c(rep("Picnic", nrow(Psummary)),
+                  rep("T-Junction", nrow(TJsummary)))) %>%
+  mutate(CV = MeanAbundanceSD/MeanAbundanceEstimate)  %>%
+ggplot(   aes( MeanAreaCovered, MeanAbundanceSD, color = Site)) +
+  geom_point( )+ #position = position_dodge(width = 1)) +
+  ylab("SD of Abundance Estimate") +
+  xlab(expression(paste("Mean Area Covered (", m^2, ")"))) +
+  scale_color_manual(values = c("blue","darkgreen")) +
+  theme_bw() +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 3), se = FALSE)
+
+# plot(x=c(Tjunc$Mean.Area.Covered,Picnic$Mean.Area.Covered), y=c(Tjunc$Mean.Abundance.SD,Picnic$Mean.Abundance.SD),
+#      pch=19,ylim=c(30,200),ylab="SD of Abundance Estimate", 
+#      xlab=expression("Mean Area Covered (m^2)"), col=rep(c("dark green","pale green"),each=13))
+# legend('topright', c("Picnic", "T-Junction"),col=c("pale green", "dark green"), lty=1, cex=1, lwd=2)
+# text(y=Tjunc$Mean.Abundance.SD, x=Tjunc$Mean.Area.Covered, Tjunc$spacing, pos=3, col="dark green")
+# text(y=Picnic$Mean.Abundance.SD, x=Picnic$Mean.Area.Covered, Picnic$spacing, pos=3, col="green")
+# abline(lm(Tjunc$Mean.Abundance.SD~Tjunc$Mean.Area.Covered))
+# both$CV<- both$Mean.Abundance.SD/both$Mean.Abundance.Estimate
+
+
+################################
+
+
+Psum %>%
+  bind_rows(TJsum) %>%
+  mutate(Site = c(rep("Picnic", nrow(Psummary)),
+                  rep("T-Junction", nrow(TJsummary)))) %>%
+  mutate(CV = MeanAbundanceSD/MeanAbundanceEstimate)  %>%
+ggplot(   aes( MeanAreaCovered, CV, color = Site)) +
+  geom_point( )+ #position = position_dodge(width = 1)) +
+  ylab("CV of Abundance Estimate") +
+  xlab(expression(paste("Sampling Effort (", m^2, ")"))) +
+  scale_color_manual(values = c("blue","darkgreen")) +
+  theme_bw() +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 3), se = FALSE) +
+  geom_text(aes(label=spacing),hjust=-.5, vjust=-.5, show.legend = F)
+  
+
+# "C:\Users\deprengm\Denver Botanic Gardens\Conservation - General\AllProjectsBySpecies\Sclerocactus-glaucus\Sclerocactus-glaucus_Manuscripts\DistanceSampling_Images"
+### Use Mean Effort as total line length - more informative of effort to get data
+ggsave(filename = "C:/Users/deprengm/Denver Botanic Gardens/Conservation - General/AllProjectsBySpecies/Sclerocactus-glaucus/Sclerocactus-glaucus_Manuscripts/2026_Ecological-Modelling/Images/CVxTransLength.jpg",
+
+Psum %>%
+  bind_rows(TJsum) %>%
+  mutate(Site = c(rep("Picnic", nrow(Psummary)),
+                  rep("T-Junction", nrow(TJsummary)))) %>%
+  mutate(CV = MeanAbundanceSD/MeanAbundanceEstimate)  %>%
+  ggplot(   aes( MeanEffort, CV, color = Site)) +
+  geom_point( )+ #position = position_dodge(width = 1)) +
+  ylab("CV of Abundance Estimate") +
+  xlab("Sampling Effort\nTotal Transect Length (m)") +
+  scale_color_manual(values = c("blue","darkgreen")) +
+  theme_bw() +
+  xlim(c(200,600)) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 3), se = FALSE) +
+  geom_text(aes(label=spacing),hjust=-.5, vjust=-.5, show.legend = F),
+
+width=150, height=125,units='mm', dpi=300) 
+
+
 
 #GG
-ggplot(both, aes(y=(Mean.Abundance.SD/Mean.Abundance.Estimate), x=Mean.Area.Covered, color=Site)) +
-  geom_point()+
-  scale_color_manual(values=c("blue","dark green"))+
-  ylim(0, 0.5)+
-  xlim(1800,17000)+
-  geom_text(aes(label=spacing),hjust=-.5, vjust=-.5, show.legend = F)+
-  ylab("CV of Abundance Estimate")+
-  xlab(expression("Area Covered by Sampling Effort " (~m^2)))+
-  geom_smooth(method = "lm", formula = y ~ poly(x, 3), se = FALSE)
+# ggplot(both, aes(y=(Mean.Abundance.SD/Mean.Abundance.Estimate), x=Mean.Area.Covered, color=Site)) +
+#   geom_point()+
+#   scale_color_manual(values=c("blue","dark green"))+
+#   ylim(0, 0.5)+
+#   xlim(1800,17000)+
+#   geom_text(aes(label=spacing),hjust=-.5, vjust=-.5, show.legend = F)+
+#   ylab("CV of Abundance Estimate")+
+#   xlab(expression("Area Covered by Sampling Effort " (~m^2)))+
+#   geom_smooth(method = "lm", formula = y ~ poly(x, 3), se = FALSE)
 
 
