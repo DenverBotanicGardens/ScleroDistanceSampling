@@ -6,6 +6,9 @@ output: html_document
 ---
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
+
+rm(list =ls())
+
 # tidyverse contains both 'dyplr' and 'ggplot2'
 library(tidyverse)
 library(dplyr)
@@ -78,8 +81,8 @@ if(!(all(count(grid, NS_ID)$n >1) | all(count(grid, EW_ID)$n >1)) ){
 #   distinct(plant_id) %>%
 #   summarise(n = n())
 
-site %>%
-  select(distance_to_group, transect_meter_mark, x, y)
+# site %>%
+#   select(distance_to_group, transect_meter_mark, x, y)
 
 ```
 
@@ -127,6 +130,68 @@ oilpad <- scgl1 %>%
   filter(site_name == "11")
 
 ```
+
+
+
+
+Conventional distance sampling for NS and EW, treat them like repeat samples  
+```{r}
+
+CDS <- picnic %>%
+  select(transect_number, transect_orientation, distance_to_group, 
+         number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group,
+         `Transect Length`) %>%
+  dplyr::rename(length = 'Transect Length') %>%
+  dplyr::mutate(distance = abs(distance_to_group)) %>%
+  rowwise() %>%
+  dplyr::mutate(size = sum(c(number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group), na.rm = TRUE)) %>%
+  ungroup() %>%
+  dplyr::mutate(strata = transect_orientation) %>%
+  dplyr::mutate(status = case_when(number_reproductive_in_group > 0 ~ 1,
+                            TRUE ~ 0)) %>%
+  dplyr::mutate(status = as.factor(status)) %>%
+  select(transect_number, strata, distance, size, status, length) %>%
+  dplyr::mutate(length = case_when(transect_number == 1 & strata == "EW" ~ 70,
+                            transect_number == 2 & strata == "NS" ~ 66,
+                            TRUE ~ length)) %>%
+  filter(size > 0)
+  
+
+lengths <- CDS %>%
+  distinct(transect_number, strata, length) %>%
+  arrange(strata, transect_number)
+```
+
+
+```{r}
+## Shape is similar (pooling robust) but the scale is different
+CDS %>%
+  ggplot( aes(distance, fill = strata)) +
+    geom_histogram() +
+    theme_bw() +
+    scale_fill_manual(values = c("#1F70B7", "#004D40"))
+
+## Do other covariates impact detections?
+CDS %>%
+  ggplot( aes(size, distance, color = strata))+
+    geom_point() +
+    geom_smooth() +
+    scale_color_manual(values = c("#1F70B7", "#004D40"))
+
+
+
+CDS %>%
+  ggplot( aes(status, distance, fill = strata)) +
+    geom_boxplot(position = position_dodge(width = 1)) +
+    geom_point(position = position_jitterdodge(dodge.width = 1, jitter.width = 0.5, jitter.height = 0)) +
+    scale_x_discrete("Reproductive status", labels = c("0" = "Vegetative", "1" = "Reproductive")) +
+    scale_fill_manual(values = c("#1F70B7", "#004D40")) +
+    theme_bw() +
+    ylab("Distance")
+```
+
+
+
 
 ### Plotting individuals
 
@@ -176,6 +241,9 @@ width=150, height=125,units='mm', dpi=300)
 
 ```
 
+
+
+
 ### Marking Overlap
 
 ```{r}
@@ -218,6 +286,7 @@ width=150, height=125,units='mm', dpi=300)
 
 
 ```
+
 
 Follow example and make data like mrds 
 Independent observer point independence model     
