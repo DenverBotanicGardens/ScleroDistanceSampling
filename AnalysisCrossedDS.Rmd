@@ -141,20 +141,23 @@ CDS <- picnic %>%
   select(transect_number, transect_orientation, distance_to_group, 
          number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group,
          `Transect Length`) %>%
-  dplyr::rename(length = 'Transect Length') %>%
+  dplyr::rename(length = 'Transect Length') %>% 
   dplyr::mutate(distance = abs(distance_to_group)) %>%
   rowwise() %>%
   dplyr::mutate(size = sum(c(number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group), na.rm = TRUE)) %>%
   ungroup() %>%
   dplyr::mutate(strata = transect_orientation) %>%
+  dplyr::mutate(transect = paste0(strata, transect_number)) %>%
   dplyr::mutate(status = case_when(number_reproductive_in_group > 0 ~ 1,
                             TRUE ~ 0)) %>%
   dplyr::mutate(status = as.factor(status)) %>%
-  select(transect_number, strata, distance, size, status, length) %>%
   dplyr::mutate(length = case_when(transect_number == 1 & strata == "EW" ~ 70,
                             transect_number == 2 & strata == "NS" ~ 66,
                             TRUE ~ length)) %>%
-  filter(size > 0)
+  filter(size > 0) %>%
+  select(transect, strata, distance, size, status, length) # %>%
+  # mutate(transect = as.factor(transect),
+  #        strata = as.factor(strata))
   
 
 lengths <- CDS %>%
@@ -162,38 +165,178 @@ lengths <- CDS %>%
   arrange(strata, transect_number)
 ```
 
-
+<https://cran.r-project.org/web/packages/unmarked/vignettes/distsamp.html>
 ```{r}
-## Shape is similar (pooling robust) but the scale is different
-CDS %>%
-  ggplot( aes(distance, fill = strata)) +
-    geom_histogram() +
-    theme_bw() +
-    scale_fill_manual(values = c("#1F70B7", "#004D40"))
-
+library(patchwork)
 ## Do other covariates impact detections?
 CDS %>%
   ggplot( aes(size, distance, color = strata))+
-    geom_point() +
+    geom_point(pch = 16) +
     geom_smooth() +
     scale_color_manual(values = c("#1F70B7", "#004D40"))
 
-
-
-CDS %>%
-  ggplot( aes(status, distance, fill = strata)) +
-    geom_boxplot(position = position_dodge(width = 1)) +
-    geom_point(position = position_jitterdodge(dodge.width = 1, jitter.width = 0.5, jitter.height = 0)) +
-    scale_x_discrete("Reproductive status", labels = c("0" = "Vegetative", "1" = "Reproductive")) +
+CDS %>% 
+  mutate(DistClass = ifelse(distance >=1.5, "far", "near")) %>%
+  ggplot( aes(size, fill = strata))+
+    geom_histogram(binwidth = 0.5, position = "dodge") +
     scale_fill_manual(values = c("#1F70B7", "#004D40")) +
     theme_bw() +
-    ylab("Distance")
+    scale_x_continuous(breaks = 1:10) +
+    facet_wrap(~ DistClass)
+
+CDS %>% 
+  mutate(DistClass = ifelse(distance >=1.5, "far", "near")) %>%
+  ggplot( aes(size, fill = DistClass))+
+    geom_histogram(binwidth = 0.5, position = "dodge") +
+    scale_fill_manual(Distance/nClass,values = c("#A78623", "#4A8CC5")) +
+    theme_bw() +
+    scale_x_continuous(breaks = 1:10) +
+    facet_wrap(~ strata)
+
+## Shape is similar (pooling robust) but the scale is different
+g1 <- CDS %>%
+  ggplot( aes(distance, fill = strata)) +
+    geom_histogram() +
+    theme_bw() +
+    scale_fill_manual(values = c("#1F70B7", "#004D40"), guide = "none") +
+    xlab("Distance (m)")
+
+g2 <- CDS %>%
+  ggplot( aes(status, distance, fill = strata)) +
+    geom_boxplot(position = position_dodge(width = 1)) +
+    geom_point(position = position_jitterdodge(dodge.width = 1, jitter.width = 0.5, jitter.height = 0), pch = 16) +
+    scale_x_discrete("", labels = c("0" = "Vegetative", "1" = "Reproductive")) +
+    scale_fill_manual("Orientation",values = c("#1F70B7", "#004D40")) +
+    theme_bw() +
+    ylab("Distance (m)")
+
+
+
+
+# Switch the histogram with the probability density differences between NS and EW
+ggsave(filename = "C:/Users/deprengm/Denver Botanic Gardens/Conservation - General/AllProjectsBySpecies/Sclerocactus-glaucus/Sclerocactus-glaucus_Manuscripts/DistanceSampling_Images/CrossedHistDistXRepro.jpg",
+g1 + g2 + plot_layout(widths = c(0.75, 1)),
+width=150, height=70,units='mm', dpi=300)
+
+```
+
+unmarked
+```{r}
+
+yDat <- formatDistData(as.data.frame(CDS), distCol = "distance",
+                       transectNameCol = "transect", dist.breaks = c(seq(0,3, 0.25)))
+
+covs <- data.frame(Strata = unlist(lapply(row.names(yDat), function(x) gsub("[[:digit:]]","",x))))
+covs$Strata <- as.factor(covs$Strata)
+covs$transect <- as.factor(row.names(yDat))
+
+tlength <- CDS %>%
+  dplyr::distinct(transect, length)
+
+Nhat <- covs %>%
+  left_join(tlength) %>%
+  mutate(NS = ifelse(Strata == "EW", 1, 0),
+         EW = ifelse(Strata == "NS", 1, 0))
+
+umf <- unmarkedFrameDS(y = as.matrix(yDat), 
+                       siteCovs = covs, 
+                       survey = "line",
+                       dist.breaks =  c(seq(0,3, 0.25)),
+                       tlength = tlength$length,
+                       unitsIn = "m")
+
+summary(umf)
+
+hist(umf, xlab = "distance (m)")
+
+hn_Null <- distsamp(~1 ~1, umf, keyfun="halfnorm", output="density",unitsOut="kmsq")
+hn_Strata <- distsamp(~1 ~Strata, umf, keyfun="halfnorm", output="density",unitsOut="kmsq")
+hn_StrataStrata <- distsamp(~Strata ~Strata, umf, keyfun="halfnorm", output="density",unitsOut="kmsq")
+# haz_Null <- distsamp(~1 ~1, umf, keyfun="hazard", output="density",unitsOut="kmsq", starts = c(qlogis(0.25),log(12)))
+# haz_Strata <- distsamp(~1 ~Strata, umf, keyfun="hazard", output="density",unitsOut="kmsq")
+
+names(hn_Null)
+
+## Predict to get esimates and 95% confidence intervals from the model on the original scale
+predict(hn_Null, type = "state")[1,]/1000000
+predict(hn_Strata, type = "state")/1000000
+
+# shape
+predict(hn_Null, type = "det")  # Same
+predict(hn_Strata, type = "det")
+predict(hn_StrataStrata, type = "det")
+
+
+# scale - only for hazard rate
+# predict(hn_Null, type = "scale")[1,]
+
+
+nd <- data.frame(Strata = "NS")
+
+predict(hn_Strata, type = "state", newdata = nd, appendData = TRUE)
+
+
+## Number of individuals in the sampled plots
+```
+
+Uncertainty of derived parameters, use parametric bootstrap approach. Define function, then apply function to numerous models fit to data simulated from original model     
+```{r}
+## The population in the covered area of transects
+getN.hat <- function(fit) {
+    d <- predict(fit, type="state")$Predicted
+    a.NS <- d * ((Nhat$length * 6 * Nhat$NS)/ 1000000)
+    a.EW <- d * ((Nhat$length * 6 * Nhat$EW)/ 1000000)
+    N.hat <- c(N.hat = sum( (a.NS + a.EW)/2 ))
+    return(N.hat)
+    }
+pb <- parboot(hn_Strata, statistic=getN.hat, nsim=25)
+pb
+
+## From projected population 
+getN.hatTot <- function(fit) {
+    dNS <- predict(fit, type="state")$Predicted[which(Nhat$NS == 1)[1]]
+    dEW <- predict(fit, type="state")$Predicted[which(Nhat$EW == 1)[1]]
+    a.NS <- dNS * (7807/ 1000000)
+    a.EW <- dEW * (7807/ 1000000)
+    N.hat <- c(N.hat = sum( (a.NS + a.EW)/2 ))
+    return(N.hat)
+    }
+pbTot <- parboot(hn_Strata, statistic=getN.hatTot, nsim=999)
+pbTot
+```
+
+
+### Plotting individuals
+```{r}
+
+strataCon <- data.frame(Strata = factor(c("EW","NS")))
+
+# Estimate density and sigma for each row
+Elambda <- predict(hn_Strata, type = "state", newdata = strataCon, appendData = TRUE)
+Esigma <- predict(hn_Strata, type = "det", newdata = strataCon, appendData = TRUE)
+
+par(mfrow=c(1, 1))
+plot(function(x) gxhn(x, sigma = 1.3456), 0, 3, xlab = "Distance (m)",
+     ylab = "Detection Prob", cex.lab = 0.7,
+     cex.axis = 0.7, las = 1)
+hist(hn_Strata, xlab = "Distance (m)", ylab = "Probability density", main = "")
+# dev.off()
+
+## For hn_StrataStrata   c("#1F70B7", "#004D40")
+# par(mfrow=c(1, 2))
+# plot(function(x) gxhn(x, sigma = 1.3456), 0, 3, xlab = "Distance (m)",
+#      ylab = "Detection Prob", cex.lab = 0.7,
+#      cex.axis = 0.7, las = 1)
+hist(hn_Strata, xlab = "Distance (m)", ylab = "Probability density", main = "")
+plot(function(x) dxhn(x, sigma = 1.3909), 0,3,add=TRUE,  lwd = 2,col = "#1F70B7")
+plot(function(x) dxhn(x, sigma = 1.26471), 0,3, lwd = 2, add=TRUE, col = "#004D40")
+legend('topright', c("EW","Pooled","NS"),
+       col = c("#1F70B7","black", "#004D40"), lty=1, lwd = 2,cex=1)
+# dev.off()
 ```
 
 
 
-
-### Plotting individuals
 
 Involves transforming the coordinates to match the plot design.
 
