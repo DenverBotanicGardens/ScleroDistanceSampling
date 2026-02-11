@@ -252,12 +252,25 @@ hist(umf, xlab = "distance (m)")
 hn_Null <- distsamp(~1 ~1, umf, keyfun="halfnorm", output="density",unitsOut="kmsq")
 hn_Strata <- distsamp(~1 ~Strata, umf, keyfun="halfnorm", output="density",unitsOut="kmsq")
 hn_StrataStrata <- distsamp(~Strata ~Strata, umf, keyfun="halfnorm", output="density",unitsOut="kmsq")
-# haz_Null <- distsamp(~1 ~1, umf, keyfun="hazard", output="density",unitsOut="kmsq", starts = c(qlogis(0.25),log(12)))
+# haz_Null <- distsamp(~1 ~1, umf, keyfun="hazard", output="density",unitsOut="kmsq", starts = c(qlogis(0.25),log(155000)))
+                     # starts = c(0.5, 0.5))
 # haz_Strata <- distsamp(~1 ~Strata, umf, keyfun="hazard", output="density",unitsOut="kmsq")
 
 names(hn_Null)
+AICc(hn_Null, hn_Strata, hn_StrataStrata)
 
-## Predict to get esimates and 95% confidence intervals from the model on the original scale
+require(AICcmodavg)
+distsamp.list <- list(hn_Null, hn_Strata, hn_StrataStrata)
+distsamp.names <- as.character(unlist(lapply(distsamp.list, formula)))
+(distsamp.results <- aictab(distsamp.list, modnames = distsamp.names))
+
+# evidence ratio
+for(i in 2:length(distsamp.list)){
+  print(exp(0.5*distsamp.results$Delta_AICc[i]))
+}
+
+
+## Predict to get estimates and 95% confidence intervals from the model on the original scale
 predict(hn_Null, type = "state")[1,]/1000000
 predict(hn_Strata, type = "state")/1000000
 
@@ -306,7 +319,8 @@ pbTot
 ```
 
 
-### Plotting individuals
+### Plotting individuals  
+Reference Buckland et al. 2009 to talk about difference in detection function vs. pooled
 ```{r}
 
 strataCon <- data.frame(Strata = factor(c("EW","NS")))
@@ -322,18 +336,32 @@ plot(function(x) gxhn(x, sigma = 1.3456), 0, 3, xlab = "Distance (m)",
 hist(hn_Strata, xlab = "Distance (m)", ylab = "Probability density", main = "")
 # dev.off()
 
+## Detection function begins with "g" and density function begins with "d"
 ## For hn_StrataStrata   c("#1F70B7", "#004D40")
-# par(mfrow=c(1, 2))
+jpeg("C:/Users/deprengm/Denver Botanic Gardens/Conservation - General/AllProjectsBySpecies/Sclerocactus-glaucus/Sclerocactus-glaucus_Manuscripts/2026_Ecological-Modelling/Images/EWvsNSPooledDetectionfxn.jpg",
+     width = 210, height = 100, units = "mm",res=300)
+par(mfrow=c(1, 2))
 # plot(function(x) gxhn(x, sigma = 1.3456), 0, 3, xlab = "Distance (m)",
 #      ylab = "Detection Prob", cex.lab = 0.7,
 #      cex.axis = 0.7, las = 1)
-hist(hn_Strata, xlab = "Distance (m)", ylab = "Probability density", main = "")
-plot(function(x) dxhn(x, sigma = 1.3909), 0,3,add=TRUE,  lwd = 2,col = "#1F70B7")
-plot(function(x) dxhn(x, sigma = 1.26471), 0,3, lwd = 2, add=TRUE, col = "#004D40")
+hist(hn_Strata, xlab = "Distance (m)", ylab = "Probability density", main = "") #, ylim = c(0,1))
+plot(function(x) dxhn(x, sigma = 1.3909), 0,3,add=TRUE,  lwd = 2,col = "#1E88E5", lty = "dashed")  ## gxhn is the detection function and g(0) = 1
+plot(function(x) dxhn(x, sigma = 1.26471), 0,3, lwd = 2, add=TRUE, col = "#D81B60", lty = "dotted")
 legend('topright', c("EW","Pooled","NS"),
-       col = c("#1F70B7","black", "#004D40"), lty=1, lwd = 2,cex=1)
-# dev.off()
+       col = c("#1E88E5","black", "#D81B60"), lty=c("dashed","solid","dotted"), lwd = 2,cex=1)
+
+## Detection function
+plot(function(x) gxhn(x, sigma = 1.345641), 0,3, lwd = 2, col = "black", xlab = "Distance (m)", ylab = "Detection function (half-normal)")
+plot(function(x) gxhn(x, sigma = 1.3909), 0,3,add=TRUE,  lwd = 2,col = "#1E88E5", lty = "dashed")  ## gxhn is the detection function and g(0) = 1
+plot(function(x) gxhn(x, sigma = 1.26471), 0,3, lwd = 2, add=TRUE, col = "#D81B60", lty = "dotted")
+legend('topright', c("EW","Pooled","NS"),
+       col = c("#1E88E5","black", "#D81B60"),lty=c("dashed","solid","dotted"), lwd = 2,cex=1)
+dev.off()
+
+
 ```
+
+https://examples.distancesampling.org/DSsim-truncation/DSsim-examples.html  
 
 
 
