@@ -15,6 +15,18 @@ library(dplyr)
 library(janitor)
 library(ggrepel)
 
+
+library(devtools)
+library(terra)
+library(raster)
+library(ggplot2)
+
+## MRDS
+library(unmarked)
+library(MuMIn)
+library(Distance)  
+library(dssd)
+
 setwd("C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling")
 scgl_obs <- read_csv("Data/distanceSampling_1.csv")
 scgl_trans_length <- read_csv("Data/transect_2.csv")
@@ -137,8 +149,15 @@ oilpad <- scgl1 %>%
 Conventional distance sampling for NS and EW, treat them like repeat samples  
 ```{r}
 
+## Transects from the grid running NS or grid running EW
+## Strata are the two perpendicular grids
+## distance: perpendicular distance from the transect line
+## size: number of individuals within a group 
+## status: 1 if any are reproductive, 0 if all are vegetative
+## length of that particular transect
+
 CDS <- picnic %>%
-  select(transect_number, transect_orientation, distance_to_group, 
+  dplyr::select(transect_number, transect_orientation, distance_to_group, 
          number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group,
          `Transect Length`) %>%
   dplyr::rename(length = 'Transect Length') %>% 
@@ -155,14 +174,14 @@ CDS <- picnic %>%
                             transect_number == 2 & strata == "NS" ~ 66,
                             TRUE ~ length)) %>%
   filter(size > 0) %>%
-  select(transect, strata, distance, size, status, length) # %>%
+  dplyr::select(transect, strata, distance, size, status, length) # %>%
   # mutate(transect = as.factor(transect),
   #        strata = as.factor(strata))
   
 
 lengths <- CDS %>%
-  distinct(transect_number, strata, length) %>%
-  arrange(strata, transect_number)
+  distinct(transect, strata, length) %>%
+  arrange(strata, transect)
 ```
 
 <https://cran.r-project.org/web/packages/unmarked/vignettes/distsamp.html>
@@ -173,22 +192,49 @@ CDS %>%
   ggplot( aes(size, distance, color = strata))+
     geom_point(pch = 16) +
     geom_smooth() +
-    scale_color_manual(values = c("#1F70B7", "#004D40"))
+    scale_color_manual(values = c("#1F70B7", "#E69F00"))  # palette.colors(8)
 
 CDS %>% 
   mutate(DistClass = ifelse(distance >=1.5, "far", "near")) %>%
   ggplot( aes(size, fill = strata))+
     geom_histogram(binwidth = 0.5, position = "dodge") +
-    scale_fill_manual(values = c("#1F70B7", "#004D40")) +
+    scale_fill_manual(values = c("#1F70B7", "#E69F00")) +
     theme_bw() +
     scale_x_continuous(breaks = 1:10) +
     facet_wrap(~ DistClass)
 
 CDS %>% 
+  # Add cut points
+  mutate(distClass = as.numeric(cut(distance, seq(0, 3, 0.25)))) %>%
+  ggplot( aes(distance, size, color = status))+
+    geom_point() +
+    scale_color_manual(values = c("#1F6D58", "#CC79A7")) +
+    theme_bw() +
+    facet_wrap(~strata) +
+    geom_smooth(method = "lm", se = FALSE)
+
+CDS %>% 
+  # Add cut points
+  mutate(distClass = cut(distance, seq(0, 3, 0.25))) %>%
+  ggplot( aes(distance, fill = status))+
+    geom_histogram(bins = 20, position = "dodge") +
+    scale_fill_manual(values = c("#1F6D58", "#CC79A7")) +
+    theme_bw() +
+    facet_wrap(~strata) 
+
+CDS %>% 
+  # Add cut points
+  mutate(distClass = cut(distance, seq(0, 3, 0.25))) %>%
+  ggplot( aes(distance, fill = strata))+
+    geom_histogram(bins = 20, position = "dodge") +
+    scale_fill_manual("Distance\nClass",values = c("#A78623", "#4A8CC5")) +
+    theme_bw()  
+
+CDS %>% 
   mutate(DistClass = ifelse(distance >=1.5, "far", "near")) %>%
   ggplot( aes(size, fill = DistClass))+
     geom_histogram(binwidth = 0.5, position = "dodge") +
-    scale_fill_manual(Distance/nClass,values = c("#A78623", "#4A8CC5")) +
+    scale_fill_manual("Distance\nClass",values = c("#A78623", "#4A8CC5")) +
     theme_bw() +
     scale_x_continuous(breaks = 1:10) +
     facet_wrap(~ strata)
@@ -223,7 +269,7 @@ width=150, height=70,units='mm', dpi=300)
 unmarked
 ```{r}
 
-yDat <- formatDistData(as.data.frame(CDS), distCol = "distance",
+yDat <- unmarked::formatDistData(as.data.frame(CDS), distCol = "distance",
                        transectNameCol = "transect", dist.breaks = c(seq(0,3, 0.25)))
 
 covs <- data.frame(Strata = unlist(lapply(row.names(yDat), function(x) gsub("[[:digit:]]","",x))))
@@ -233,6 +279,7 @@ covs$transect <- as.factor(row.names(yDat))
 tlength <- CDS %>%
   dplyr::distinct(transect, length)
 
+## Need to average, not sum two strata
 Nhat <- covs %>%
   left_join(tlength) %>%
   mutate(NS = ifelse(Strata == "EW", 1, 0),
@@ -280,6 +327,9 @@ predict(hn_Strata, type = "state", newdata = nd, appendData = TRUE)
 ```
 
 Uncertainty of derived parameters, use parametric bootstrap approach. Define function, then apply function to numerous models fit to data simulated from original model     
+
+https://distancesampling.org/Distance/articles/web-only/differences/differences.html   Bootstrap
+https://cran.r-project.org/web/packages/unmarked/vignettes/distsamp.html     Code below from here
 ```{r}
 ## The population in the covered area of transects
 getN.hat <- function(fit) {
@@ -289,7 +339,7 @@ getN.hat <- function(fit) {
     N.hat <- c(N.hat = sum( (a.NS + a.EW)/2 ))
     return(N.hat)
     }
-pb <- parboot(hn_Strata, statistic=getN.hat, nsim=25)
+pb <- parboot(hn_Strata, statistic=getN.hat, nsim=999)
 pb
 
 ## From projected population 
@@ -303,6 +353,18 @@ getN.hatTot <- function(fit) {
     }
 pbTot <- parboot(hn_Strata, statistic=getN.hatTot, nsim=999)
 pbTot
+
+# Density
+getD.hatTot <- function(fit) {
+    dNS <- predict(fit, type="state")$Predicted[which(Nhat$NS == 1)[1]]
+    dEW <- predict(fit, type="state")$Predicted[which(Nhat$EW == 1)[1]]
+    a.NS <- dNS / 1000000
+    a.EW <- dEW / 1000000
+    N.hat <- c(N.hat = sum( (a.NS + a.EW)/2 ))
+    return(N.hat)
+    }
+pbDen <- parboot(hn_Strata, statistic=getD.hatTot, nsim=999)
+pbDen
 ```
 
 
