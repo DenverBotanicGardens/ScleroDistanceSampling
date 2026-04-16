@@ -141,6 +141,8 @@ bridgeport <- scgl1 %>%
 oilpad <- scgl1 %>% 
   filter(site_name == "11")
 
+
+write.csv(picnic, file = "C:/Users/deprengm/ScleroDistanceSampling/Data/picnicCrossed.csv")
 ```
 
 
@@ -182,9 +184,17 @@ CDS <- picnic %>%
 lengths <- CDS %>%
   distinct(transect, strata, length) %>%
   arrange(strata, transect)
+
+lengths %>%
+  group_by(strata) %>%
+  summarise(L = sum(length))
+# 203 meters for EW
+# 156 meters for NS
 ```
 
-<https://cran.r-project.org/web/packages/unmarked/vignettes/distsamp.html>
+<https://cran.r-project.org/web/packages/unmarked/vignettes/distsamp.html>  
+
+There are more EW than NS 
 ```{r}
 library(patchwork)
 ## Do other covariates impact detections?
@@ -257,7 +267,10 @@ g2 <- CDS %>%
     ylab("Distance (m)")
 
 
-
+## How many hits among the EW vs. NS
+CDS %>%
+  group_by(strata) %>%
+  summarise(n=n())
 
 # Switch the histogram with the probability density differences between NS and EW
 ggsave(filename = "C:/Users/deprengm/Denver Botanic Gardens/Conservation - General/AllProjectsBySpecies/Sclerocactus-glaucus/Sclerocactus-glaucus_Manuscripts/DistanceSampling_Images/CrossedHistDistXRepro.jpg",
@@ -299,12 +312,13 @@ hist(umf, xlab = "distance (m)")
 hn_Null <- distsamp(~1 ~1, umf, keyfun="halfnorm", output="density",unitsOut="kmsq")
 hn_Strata <- distsamp(~1 ~Strata, umf, keyfun="halfnorm", output="density",unitsOut="kmsq")
 hn_StrataStrata <- distsamp(~Strata ~Strata, umf, keyfun="halfnorm", output="density",unitsOut="kmsq")
-# haz_Null <- distsamp(~1 ~1, umf, keyfun="hazard", output="density",unitsOut="kmsq", starts = c(qlogis(0.25),log(155000)))
-                     # starts = c(0.5, 0.5))
+# If parameters are at boundary - use half normal instead
+# haz_Null <- distsamp(~1 ~1, umf, keyfun="hazard", output="density",unitsOut="kmsq", starts = c(0.5,0.5))
 # haz_Strata <- distsamp(~1 ~Strata, umf, keyfun="hazard", output="density",unitsOut="kmsq")
+# haz_Strata <- distsamp(~Strata ~Strata, umf, keyfun="hazard", output="density",unitsOut="kmsq")
 
 names(hn_Null)
-AICc(hn_Null, hn_Strata, hn_StrataStrata)
+MuMIn::AICc(hn_Null, hn_Strata, hn_StrataStrata)
 
 require(AICcmodavg)
 distsamp.list <- list(hn_Null, hn_Strata, hn_StrataStrata)
@@ -482,12 +496,12 @@ width=150, height=125,units='mm', dpi=300)
 ```{r}
 
 #apply unique ID's
-picnic_id <- mutate(picnic_1, plant_id = c(1:nrow(picnic_1)))
+picnic_id <- dplyr::mutate(picnic_1, plant_id = c(1:nrow(picnic_1)))
 
 #filter to crossing zones
 ## Increase to + or - 4 from 3 (that was real) to account for ones that are off due to non right angles?
-cD <- 4 ## cross distance
-picnic_id <- mutate(picnic_id, 
+cD <- 3.5 ## cross distance
+picnic_id <- dplyr::mutate(picnic_id, 
                     zoned = case_when( 
   c(rowSums(mapply( FUN = function(a, b){between(a, b-cD, b+cD)}, picnic_id[, "y"], c(20, 30, 40, 50))) +
       rowSums(mapply( FUN = function(a, b){between(a, b-cD, b+cD)}, picnic_id[, "x"], c(-20, -30, -40)))) == 2 ~ 1,
@@ -496,6 +510,10 @@ picnic_id <- mutate(picnic_id,
 
 #find duplicates within those zones; increase distance of fuzziness
 picnic_duped <- crossed(picnic_id, 1)
+
+picnic_id %>%
+  group_by(zoned) %>%
+  summarise(n = n())
 
 pic_plot1 <- picnic_duped %>% 
   filter(zoned ==1) %>% 
@@ -556,7 +574,8 @@ picnic.data <- picnic_duped %>%
                                                                                                  abs(60-max(abs(transect_meter_mark), na.rm = TRUE)),
       TRUE ~ max(distance, na.rm = TRUE)
                               )) %>%
-  select(plant_id:detected,size,distance2) %>%
+  # ungroup() %>%
+  dplyr::select(plant_id:detected,size,distance2) %>%
   rename("distance" = "distance2")
 
 
@@ -565,6 +584,13 @@ picnic.data %>%
   group_by(plant_id, observer) %>%
   summarise(n = n()) %>%
   filter(n > 1)
+
+## One is one plant, one are two plants; discrepancies in group size. 
+picnic.data %>%
+  filter(plant_id == 41)
+picnic_duped %>%
+  filter(plant_id == 41) %>%
+  dplyr::select(number_seedlings_in_group:number_reproductive_in_group)
 
 ## Keep only one repeated plant_id per EW and NS pair.
 picnic.data1 <- picnic.data %>%
