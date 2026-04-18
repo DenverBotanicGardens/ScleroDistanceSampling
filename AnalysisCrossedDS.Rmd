@@ -38,7 +38,9 @@ scgl_obs <- clean_names(scgl_obs)
 ```
 
 
-This function will be used later to find duplicate plants
+This function will be used later to find duplicate plants    
+Update to same group size 
+
 
 ```{r test function}
 
@@ -90,8 +92,10 @@ if(!(all(count(grid, NS_ID)$n >1) | all(count(grid, EW_ID)$n >1)) ){
 }
 
 # temp_site %>%
-#   distinct(plant_id) %>%
-#   summarise(n = n())
+#   group_by(plant_id, transect_orientation) %>%
+#   mutate(n = n()) %>%
+#   arrange(plant_id) %>%
+#   filter(n >1)
 
 # site %>%
 #   select(distance_to_group, transect_meter_mark, x, y)
@@ -169,6 +173,7 @@ CDS <- picnic %>%
   ungroup() %>%
   dplyr::mutate(strata = transect_orientation) %>%
   dplyr::mutate(transect = paste0(strata, transect_number)) %>%
+  ## Reproductive Status yes=1, no=0
   dplyr::mutate(status = case_when(number_reproductive_in_group > 0 ~ 1,
                             TRUE ~ 0)) %>%
   dplyr::mutate(status = as.factor(status)) %>%
@@ -279,8 +284,25 @@ width=150, height=70,units='mm', dpi=300)
 
 ```
 
-unmarked
+unmarked   
+Assuming all are individuals, estimting the number of clusters. 
 ```{r}
+library(HDInterval)
+CDS %>%
+  group_by(strata) %>%
+  summarise(clustersize = mean(size), ## 1.56
+            lcl = hdi(size)[1],       ## 1 
+            hcl = hdi(size)[2])       ## 4
+
+CDS %>%
+  ggplot(  aes(size, fill = strata, alpha = 0.5)) +
+    geom_density() +
+    geom_vline(xintercept = 1.56, linetype = "dotted", lwd = 1) +
+    geom_vline(xintercept = 4) + 
+    geom_vline(xintercept = 1) +
+    theme_bw() +
+    scale_fill_manual("Strata", values = c("#1F6D58", "#CC79A7")) +
+    scale_alpha(guide = "none")
 
 yDat <- unmarked::formatDistData(as.data.frame(CDS), distCol = "distance",
                        transectNameCol = "transect", dist.breaks = c(seq(0,3, 0.25)))
@@ -500,7 +522,7 @@ picnic_id <- dplyr::mutate(picnic_1, plant_id = c(1:nrow(picnic_1)))
 
 #filter to crossing zones
 ## Increase to + or - 4 from 3 (that was real) to account for ones that are off due to non right angles?
-cD <- 3.5 ## cross distance
+cD <- 3 ## cross distance
 picnic_id <- dplyr::mutate(picnic_id, 
                     zoned = case_when( 
   c(rowSums(mapply( FUN = function(a, b){between(a, b-cD, b+cD)}, picnic_id[, "y"], c(20, 30, 40, 50))) +
@@ -511,8 +533,18 @@ picnic_id <- dplyr::mutate(picnic_id,
 #find duplicates within those zones; increase distance of fuzziness
 picnic_duped <- crossed(picnic_id, 1)
 
-picnic_id %>%
+## Duplicate observations; there are 10, some don't match in group size or composition
+picnic_duped %>%
+  group_by(plant_id, zoned) %>%
+  mutate(n = n()) %>%
+  # filter(duplicated(plant_id)) %>%
+  dplyr::select(plant_id, transect_orientation, number_seedlings_in_group:number_reproductive_in_group, n) %>%
+  filter(n >1) %>%
+  arrange(plant_id)
+
+picnic_duped %>%
   group_by(zoned) %>%
+  distinct(plant_id) %>%
   summarise(n = n())
 
 pic_plot1 <- picnic_duped %>% 
@@ -538,6 +570,136 @@ width=150, height=125,units='mm', dpi=300)
 
 ```
 
+Lincoln-Petersen Index of population size (this doesn't get detection)
+```{r}
+picnic_duped %>%
+  filter(zoned == 1) %>%
+  summarise(n = n())
+
+# Marked individuals released 
+# M <- 
+  
+library(RMark)
+
+## Independent double observer transect survey; Huggins closed capture, Observer 1 was SL (spotlight), TI (thermal imager)
+# Group similar to transect? or grid; Cluster assigns deer to a specific observation cluster
+# Collier et al 2012
+data(deer)
+  
+```
+
+Mark-recapture  
+```{r}
+x <- picnic_duped %>%
+  filter(zoned == 1) %>%
+  ## Detected
+  mutate(dh = 1) %>%
+  # group_by(plant_id, transect_orientation) %>%
+  complete(transect_orientation, plant_id,
+                fill = list(dh = 0)) %>%
+  dplyr::select(dh, plant_id, transect_orientation) %>%
+  pivot_wider(id_cols = plant_id, values_from = dh, names_from = transect_orientation) %>%
+  unite(ch, EW:NS, sep="") # 
+
+x2 <- picnic_duped %>%
+  filter(zoned == 1) %>%
+  ## Detected
+  mutate(dh = 1) %>%
+  # group_by(plant_id, transect_orientation) %>%
+  complete(transect_orientation, plant_id,
+                fill = list(dh = 0)) %>%
+  dplyr::select(dh, plant_id, transect_orientation) %>%
+  pivot_wider(id_cols = plant_id, values_from = dh, names_from = transect_orientation) %>%
+  unite(ch, NS:EW, sep="") # 
+
+x %>%
+  mutate(ch = paste0(ch,";")) %>%
+  write.table(file = "Data/Closed.inp",
+              sep = " ", col.names = FALSE, row.names = FALSE)
+  
+
+
+
+## Convert for mark
+scglClosed.inp <- convert.inp("Data/Closed.inp",
+                              covariates = NULL,
+                              use.comments = FALSE)
+
+M <- nrow(x) ## 81 unique observations
+```
+
+Huggins Closed so I could have individual covariates but don't need them    
+Closed: constant p, constant c, f0 = frequency (number) never seen (need to add unique number captured to estimate population)   
+Know what the number of unique observations is, make sure N hasn't collapsed to the value of unique observations 
+```{r}
+## EW then NS
+Cproc <- process.data(x, model = "Closed")
+Cddl <- make.design.data(Cproc)
+
+# constant p and c
+closed <- mark(data = Cproc, Cddl, model.parameters = list(p = list(formula = ~1),
+                                                           c = list(formula = ~1)))
+
+closedshared <- mark(data = Cproc, Cddl, model.parameters = list(p = list(formula=~1,share=TRUE)))
+## NS then EW
+Cproc2 <- process.data(x2, model = "Closed")
+Cddl2 <- make.design.data(Cproc2)
+
+# constant p and c
+closed2 <- mark(data = Cproc2, Cddl2, model.parameters = list(p = list(formula = ~1),
+                                                              c = list(formula = ~1)))
+
+
+closedshared2 <- mark(data = Cproc2, Cddl2, model.parameters = list(p = list(formula=~1,share=TRUE)))
+
+
+## Huggins 
+## EW then NS
+CprocHug <- process.data(x, model = "Huggins")
+CddlHug <- make.design.data(CprocHug)
+
+# constant p and c
+Huggins <- mark(data = CprocHug, CddlHug, model.parameters = list(p = list(formula = ~1),
+                                                           c = list(formula = ~1)))
+## NS then EW
+Cproc2Hug <- process.data(x2, model = "Huggins")
+Cddl2Hug <- make.design.data(Cproc2Hug)
+
+# constant p and c
+Huggins2 <- mark(data = Cproc2Hug, Cddl2Hug, model.parameters = list(p = list(formula = ~1),
+                                                              c = list(formula = ~1)))
+
+
+get.real(Huggins, "p", se = TRUE)
+get.real(closed, "p", se = TRUE)
+get.real(closed, "f0", se = TRUE)
+get.real(closedshared, "p", se = TRUE)
+
+get.real(Huggins2, "p", se = TRUE)
+get.real(closed2, "p", se = TRUE)
+get.real(closedshared2, "p", se = TRUE)
+get.real(closedshared, "f0", se = TRUE)
+
+
+## 121.98 (56.5 - 263.3) as the 95% CI of individuals never seen
+
+```
+
+
+
+```{r}
+# half normal model with key function = 
+exp(-animals$perd^2/(2 * animals$sigma^2)). 
+
+# For a hazard rate model, I replaced the key function with: 
+1-exp(-(animals$perd/animals$sigma) ^ -b) 
+# where b is a shape parameter given in summary(mod)$ddf, but left the rest of the code as is. Is this correct?
+
+I figured out a 'clever' way of extracting the model and shape parameter coefficients for my hazard rate model: 
+a <- coef(mod$ddf)[1]$scale$estimate
+b <- coef(mod$ddf)[2]$exponent$estimate
+```
+
 
 Follow example and make data like mrds 
 Independent observer point independence model     
@@ -561,6 +723,7 @@ picnic.data <- picnic_duped %>%
   ## When grouped, one might be missed, that's the row where distance missing
   group_by(plant_id) %>%
   ## each set of two observations
+  ## need to update the group size as well. 
   mutate(distance2 = case_when(detected == 0 & max(abs(transect_meter_mark), na.rm = TRUE) < 15 ~ abs(10-max(abs(transect_meter_mark), na.rm = TRUE)),
                         detected == 0  & max(abs(transect_meter_mark), na.rm = TRUE) > 15 & max(abs(transect_meter_mark), na.rm = TRUE) < 25 ~ 
                                                                                                  abs(20-max(abs(transect_meter_mark), na.rm = TRUE)),
@@ -578,6 +741,15 @@ picnic.data <- picnic_duped %>%
   dplyr::select(plant_id:detected,size,distance2) %>%
   rename("distance" = "distance2")
 
+picnic_duped %>%
+  dplyr::select(plant_id, number_seedlings_in_group:number_reproductive_in_group,transect_orientation) %>%
+  dplyr::arrange(plant_id)
+
+
+picnic_duped %>%
+  filter(plant_id == 6) %>%
+  dplyr::select(number_seedlings_in_group:number_reproductive_in_group)
+
 
 ## Shouldn't be two observations of same plant id in same line
 picnic.data %>%
@@ -585,11 +757,24 @@ picnic.data %>%
   summarise(n = n()) %>%
   filter(n > 1)
 
+# When the group size differs, then 
 ## One is one plant, one are two plants; discrepancies in group size. 
 picnic.data %>%
   filter(plant_id == 41)
+# Two different groups likely
 picnic_duped %>%
   filter(plant_id == 41) %>%
+  dplyr::select(number_seedlings_in_group:number_reproductive_in_group)
+## This one seems like should be two different plants. Unlikely to confuse 1 reproductive with 3 vegetative
+picnic_duped %>%
+  filter(plant_id == 136) %>%
+  dplyr::select(number_seedlings_in_group:number_reproductive_in_group)
+picnic_duped %>%
+  filter(plant_id == 141) %>%
+  dplyr::select(number_seedlings_in_group:number_reproductive_in_group)
+# This one is likely the same plant, both have one reproductive, one has one seedling. 
+picnic_duped %>%
+  filter(plant_id == 188) %>%
   dplyr::select(number_seedlings_in_group:number_reproductive_in_group)
 
 ## Keep only one repeated plant_id per EW and NS pair.
@@ -640,7 +825,7 @@ picnic.obs <- picnic_duped %>%
 
 
 <https://distancesampling.org/mrds/articles/mrds-golftees.html>     
-Not appropraite for this data because the distances differ so not an estimate of how detection differs by distance
+Not appropriate for this data because the distances differ so not an estimate of how detection differs by distance
 ```{r}
 
 ## Fully independent   
