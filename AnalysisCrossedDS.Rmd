@@ -199,7 +199,8 @@ lengths %>%
 
 <https://cran.r-project.org/web/packages/unmarked/vignettes/distsamp.html>  
 
-There are more EW than NS 
+There are more EW than NS   
+Unmodelled heterogeneity, a variable that will impact the detection rate for both independent (FI: full - a mark-recapture only with no unmodelled heterogeneity at any distance) or Point independence (PI: limiting independence)
 ```{r}
 library(patchwork)
 ## Do other covariates impact detections?
@@ -285,7 +286,7 @@ width=150, height=70,units='mm', dpi=300)
 ```
 
 unmarked   
-Assuming all are individuals, estimting the number of clusters. 
+Assuming all are individuals, estimating the number of clusters. 
 ```{r}
 library(HDInterval)
 CDS %>%
@@ -570,6 +571,9 @@ width=150, height=125,units='mm', dpi=300)
 
 ```
 
+
+
+
 Lincoln-Petersen Index of population size (this doesn't get detection)
 ```{r}
 picnic_duped %>%
@@ -584,12 +588,14 @@ library(RMark)
 ## Independent double observer transect survey; Huggins closed capture, Observer 1 was SL (spotlight), TI (thermal imager)
 # Group similar to transect? or grid; Cluster assigns deer to a specific observation cluster
 # Collier et al 2012
-data(deer)
+# data(deer)
   
 ```
 
 Mark-recapture  
 ```{r}
+
+## EW first
 x <- picnic_duped %>%
   filter(zoned == 1) %>%
   ## Detected
@@ -601,6 +607,7 @@ x <- picnic_duped %>%
   pivot_wider(id_cols = plant_id, values_from = dh, names_from = transect_orientation) %>%
   unite(ch, EW:NS, sep="") # 
 
+## NS first
 x2 <- picnic_duped %>%
   filter(zoned == 1) %>%
   ## Detected
@@ -700,7 +707,7 @@ a <- coef(mod$ddf)[1]$scale$estimate
 b <- coef(mod$ddf)[2]$exponent$estimate
 ```
 
-
+mrds (Burt et al 2014)
 Follow example and make data like mrds 
 Independent observer point independence model     
 io.fi: the mark-recapture component of the modelling  
@@ -807,7 +814,7 @@ picnic.samples <- picnic %>%
   ungroup() %>%
   mutate(Region.Label = "Picnic") %>%
   rename("Effort" = "Transect Length") %>%
-  select(Sample.Label, Region.Label, Effort) %>%
+  dplyr::select(Sample.Label, Region.Label, Effort) %>%
   mutate(Effort = case_when(Sample.Label == "1EW" ~ 70,
                             TRUE ~ Effort)) %>%
   filter(!is.na(Effort)) %>%
@@ -829,14 +836,29 @@ Not appropriate for this data because the distances differ so not an estimate of
 ```{r}
 
 ## Fully independent   
-# Should break into distance categories which isn't the same for our data anyway, might be close for 
+# MR only, no distance data
 fi.mr.dist <- ddf(method = "trial.fi", 
-                  mrmodel = ~ glm(link = 'logit', formula = ~ distance),
+                  mrmodel = ~ glm(link = 'logit', formula = ~ size), #  distance),
                   data = picnic.data1,
                   meta.data = list(width = 3))
 
 
+detection.tables <- det.tables(fi.mr.dist)
+# Print these detection tables
+print(detection.tables)
+plot(fi.mr.dist)
 
+
+fi.mr.dist.io <- ddf(method = "io.fi", 
+                  mrmodel = ~ glm(link = 'logit', formula = ~ size), #  distance),
+                  data = picnic.data1,
+                  meta.data = list(width = 3))
+
+
+detection.tables.io <- det.tables(fi.mr.dist.io)
+# Print these detection tables
+print(detection.tables.io)
+plot(fi.mr.dist.io)
 ```
 
 
