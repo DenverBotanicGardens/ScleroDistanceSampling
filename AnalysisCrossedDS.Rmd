@@ -243,7 +243,8 @@ CDS %>%
   mutate(distClass = cut(distance, seq(0, 3, 0.25))) %>%
   ggplot( aes(distance, fill = strata))+
     geom_histogram(bins = 20, position = "dodge") +
-    scale_fill_manual("Distance\nClass",values = c("#A78623", "#4A8CC5")) +
+    scale_fill_manual(values = c("#1F6D58", "#CC79A7")) +
+    # scale_fill_manual("Distance\nClass",values = c("#A78623", "#4A8CC5")) +
     theme_bw()  
 
 CDS %>% 
@@ -261,16 +262,19 @@ g1 <- CDS %>%
     geom_histogram() +
     theme_bw() +
     scale_fill_manual(values = c("#1F70B7", "#004D40"), guide = "none") +
-    xlab("Distance (m)")
+    xlab("Distance (m)")+
+    ylab("Detections") +
+    ggtitle("a)")
 
 g2 <- CDS %>%
   ggplot( aes(status, distance, fill = strata)) +
-    geom_boxplot(position = position_dodge(width = 1)) +
-    geom_point(position = position_jitterdodge(dodge.width = 1, jitter.width = 0.5, jitter.height = 0), pch = 16) +
+    geom_boxplot(position = position_dodge(width = 1), outlier.shape = NA) +
+    geom_point(position = position_jitterdodge(dodge.width = 1, jitter.width = 0.25, jitter.height = 0), pch = 16, size = 0.5) +
     scale_x_discrete("", labels = c("0" = "Vegetative", "1" = "Reproductive")) +
     scale_fill_manual("Orientation",values = c("#1F70B7", "#004D40")) +
     theme_bw() +
-    ylab("Distance (m)")
+    ylab("Distance (m)")+
+    ggtitle("b)")
 
 
 ## How many hits among the EW vs. NS
@@ -280,7 +284,7 @@ CDS %>%
 
 # Switch the histogram with the probability density differences between NS and EW
 ggsave(filename = "C:/Users/deprengm/Denver Botanic Gardens/Conservation - General/AllProjectsBySpecies/Sclerocactus-glaucus/Sclerocactus-glaucus_Manuscripts/DistanceSampling_Images/CrossedHistDistXRepro.jpg",
-g1 + g2 + plot_layout(widths = c(0.75, 1)),
+g1 + g2 + plot_layout(widths = c(0.85, 1)),
 width=150, height=70,units='mm', dpi=300)
 
 ```
@@ -598,13 +602,16 @@ Mark-recapture
 ## EW first
 x <- picnic_duped %>%
   filter(zoned == 1) %>%
+  # rowwise() %>%
+  # dplyr::mutate(size = sum(c(number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group), na.rm = TRUE)) %>%
+  # ungroup() %>%
   ## Detected
   mutate(dh = 1) %>%
   # group_by(plant_id, transect_orientation) %>%
-  complete(transect_orientation, plant_id,
+  complete(transect_orientation, plant_id, # size,
                 fill = list(dh = 0)) %>%
-  dplyr::select(dh, plant_id, transect_orientation) %>%
-  pivot_wider(id_cols = plant_id, values_from = dh, names_from = transect_orientation) %>%
+  dplyr::select(dh, plant_id, transect_orientation) %>% # , size
+  pivot_wider(id_cols = plant_id, values_from = dh, names_from = transect_orientation) %>%  # c(plant_id, size)
   unite(ch, EW:NS, sep="") # 
 
 ## NS first
@@ -702,7 +709,7 @@ exp(-animals$perd^2/(2 * animals$sigma^2)).
 1-exp(-(animals$perd/animals$sigma) ^ -b) 
 # where b is a shape parameter given in summary(mod)$ddf, but left the rest of the code as is. Is this correct?
 
-I figured out a 'clever' way of extracting the model and shape parameter coefficients for my hazard rate model: 
+# I figured out a 'clever' way of extracting the model and shape parameter coefficients for my hazard rate model: 
 a <- coef(mod$ddf)[1]$scale$estimate
 b <- coef(mod$ddf)[2]$exponent$estimate
 ```
