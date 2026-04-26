@@ -599,6 +599,16 @@ library(RMark)
 Mark-recapture  
 ```{r}
 
+## Size of clusters
+picnic_duped %>%
+  filter(zoned == 1) %>%
+  rowwise() %>%
+  dplyr::mutate(size = sum(c(number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group), 
+                           na.rm = TRUE)) %>%
+  ungroup() %>%
+  # group_by(transect_orientation) %>%
+  summarise(clusterSize = mean(size))
+
 ## EW first
 x <- picnic_duped %>%
   filter(zoned == 1) %>%
@@ -613,6 +623,10 @@ x <- picnic_duped %>%
   dplyr::select(dh, plant_id, transect_orientation) %>% # , size
   pivot_wider(id_cols = plant_id, values_from = dh, names_from = transect_orientation) %>%  # c(plant_id, size)
   unite(ch, EW:NS, sep="") # 
+
+## 10 observed by both
+x %>%
+  filter(ch == "11")
 
 ## NS first
 x2 <- picnic_duped %>%
@@ -640,6 +654,7 @@ scglClosed.inp <- convert.inp("Data/Closed.inp",
                               use.comments = FALSE)
 
 M <- nrow(x) ## 81 unique observations
+clusterSize <- 1.58
 ```
 
 Huggins Closed so I could have individual covariates but don't need them    
@@ -696,7 +711,7 @@ get.real(closedshared, "f0", se = TRUE)
 
 
 ## 121.98 (56.5 - 263.3) as the 95% CI of individuals never seen
-
+(122+M)*clusterSize
 ```
 
 
@@ -732,7 +747,12 @@ picnic.data <- picnic_duped %>%
   dplyr::rename("observer" = "transect_orientation") %>%
   dplyr::select(plant_id, observer, detected, ## detected by fill all plant_id for each trans_ori
          distance, size, transect_meter_mark, transect_number) %>%
+  ## But when the size differed between observations, then get repeated plant ids
   complete(nesting(plant_id,size),observer, fill = list(detected = 0)) %>% ## Keep only size and plantID that are in the data
+  ## Ignore one of the sizes, take the larger only
+  group_by(plant_id) %>%
+  filter(size == max(size)) %>%
+  ungroup() %>%
   relocate(size, .after = distance) %>%
   ## When grouped, one might be missed, that's the row where distance missing
   group_by(plant_id) %>%
@@ -765,7 +785,7 @@ picnic_duped %>%
   dplyr::select(number_seedlings_in_group:number_reproductive_in_group)
 
 
-## Shouldn't be two observations of same plant id in same line
+## Shouldn't be two observations of same plant id in same line, removed by selecting only the largest estimate of size above
 picnic.data %>%
   group_by(plant_id, observer) %>%
   summarise(n = n()) %>%
@@ -793,21 +813,11 @@ picnic_duped %>%
 
 ## Keep only one repeated plant_id per EW and NS pair.
 picnic.data1 <- picnic.data %>%
-  # group_by(plant_id, observer) %>%
-  # distinct(plant_id, .keep_all = TRUE) %>%
-  # arrange(-detected) %>%
-  # mutate(distance = case_when(detected == 0 ~ NA,
-  #                             TRUE ~ distance)) %>%
-  # ungroup() %>%
-  # group_by(plant_id) %>%
-  # fill(distance) %>%
-  # ungroup() %>%
   rename("object" = "plant_id") %>%
   arrange(object, observer) %>%
   mutate(observer = as.factor(as.numeric(as.factor(observer))))
 
 picnic.data1 %>%
-  group_by(object) %>%
   summarise(n = n()) %>%
   filter(n > 1)
   
@@ -834,6 +844,24 @@ picnic.obs <- picnic_duped %>%
   ungroup() %>%
   distinct(plant_id, Sample.Label) %>%
   mutate(Region.Label = "Picnic")
+
+picnic.data1 %>%
+  group_by(object, observer) %>%
+  summarise(n = n()) %>%
+  filter(n != 1)
+  
+picnic.data1 %>%
+  group_by(object) %>%
+  summarise(n = n()) %>%
+  ungroup() %>%
+  group_by(n) %>%
+  summarise(numClusters = n())
+
+## Correct, there are 6 duplicate detections, why are there 10 in the closed RMark design? 
+picnic.data1 %>%
+  group_by(object) %>%
+  summarise(dups = sum(detected)) %>%
+  filter(dups > 1)
 
 ```
 
