@@ -744,15 +744,14 @@ picnic.data <- picnic_duped %>%
   rowwise() %>%
   mutate(size = sum(c(number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group), na.rm = TRUE)) %>%
   ungroup() %>%
+  ## There are 4 duplicate detections that have different numbers of individuals in the clusters, select largest
+  group_by(plant_id) %>%
+  mutate(size = max(size)) %>%
+  ungroup() %>%
   dplyr::rename("observer" = "transect_orientation") %>%
   dplyr::select(plant_id, observer, detected, ## detected by fill all plant_id for each trans_ori
          distance, size, transect_meter_mark, transect_number) %>%
-  ## But when the size differed between observations, then get repeated plant ids
   complete(nesting(plant_id,size),observer, fill = list(detected = 0)) %>% ## Keep only size and plantID that are in the data
-  ## Ignore one of the sizes, take the larger only
-  group_by(plant_id) %>%
-  filter(size == max(size)) %>%
-  ungroup() %>%
   relocate(size, .after = distance) %>%
   ## When grouped, one might be missed, that's the row where distance missing
   group_by(plant_id) %>%
@@ -788,8 +787,10 @@ picnic_duped %>%
 ## Shouldn't be two observations of same plant id in same line, removed by selecting only the largest estimate of size above
 picnic.data %>%
   group_by(plant_id, observer) %>%
-  summarise(n = n()) %>%
+  mutate(n = n()) %>%
   filter(n > 1)
+
+  
 
 # When the group size differs, then 
 ## One is one plant, one are two plants; discrepancies in group size. 
@@ -857,14 +858,20 @@ picnic.data1 %>%
   group_by(n) %>%
   summarise(numClusters = n())
 
-## Correct, there are 6 duplicate detections, why are there 10 in the closed RMark design? 
 picnic.data1 %>%
   group_by(object) %>%
   summarise(dups = sum(detected)) %>%
   filter(dups > 1)
 
 ```
+There are four that are similar location but different group cluster sizes. Ignored here but included with larger size value for the RMark
 
+1     46     2
+2     60     2
+3     79     2
+4    118     2
+5    223     2
+6    224     2
 
 <https://distancesampling.org/mrds/articles/mrds-golftees.html>     
 Not appropriate for this data because the distances differ so not an estimate of how detection differs by distance
