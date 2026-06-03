@@ -106,6 +106,15 @@ oilpad <- scgl1 %>%
 
 ```
 
+ids are duplicated in picnic_1 for the original and the swapped
+```{r}
+picnic_1 %>%
+  ggplot(  aes(object_id)) +
+    geom_histogram(stat = "count") +
+    facet_wrap(~ swapped_dir)
+```
+
+
 ### 2026 function
 
 Idea is to use covariates to generate a probablity score indicating likelihood of pairs of
@@ -131,6 +140,7 @@ dup.fun <- function(site, distance, cluster, TS = 8, TV = 5, TR = 2){
   
   #making new column with new UUID for each observation due to cloned entries
   site$new_id = UUIDgenerate(use.time = FALSE, n = nrow(site), output = "string")
+  
   #Creating list of all combinations of global_id's to reference
   list <- utils::combn(site$new_id, m = 2, simplify = FALSE)
   #Appending calculated variables to the list  
@@ -163,34 +173,54 @@ dup.fun <- function(site, distance, cluster, TS = 8, TV = 5, TR = 2){
                            xor(str_detect(a$direction_to_group, pattern = "NA"),  ## if one is true == xor
                             str_detect(b$direction_to_group, pattern = "NA")) ~ 1,
                             TRUE ~ 0)
+    #The orientation of id_1
+    list.1[10] <- a$transect_orientation
+    list.1[11] <- b$transect_orientation
      return(list.1)
   })
+
   
   #use the Hamilton, et. al discrepancy score equation as a base
   ## only want ones on different transects (keep if want to follow Hamilton and compare known non-duplicates)
-  ## Larger discrepency score == less likely to be a duplicate
-  ## Numbers don't matter (in thier appendix 2a) 
+  ## Larger discrepancy score == less likely to be a duplicate
+  ## Numbers don't matter (picked arbitrarily in their appendix 2a) 
   list <- lapply(list, function(z){
-    z[10] <- 
+    ## Discrepancy score
+    z[12] <- 
       # if distance between is greater than the set distance > 1, if less than, is under 1
-      (min(as.numeric(z[3]), distance)/ distance) + # using 0.5m as the 'beyond a doubt' not duplicate distance
-      (min(as.numeric(z[5]), TS)/TS) + #seedlings difference, 8 = not duplicate; TS
-      (min(as.numeric(z[6]), TV)/TV) + #vegetative difference, 5 = not duplicate; TV
-      (min(as.numeric(z[7]), TR)/TR) #reproductive difference, 2 = not duplicate; TR # to give margin 
+      # (min(as.numeric(z[3]), distance)/ distance) + # using distance in meters as the 'beyond a doubt' not duplicate distance
+      # (min(as.numeric(z[5]), TS)/TS) + #seedlings difference, 8 = not duplicate; TS
+      # (min(as.numeric(z[6]), TV)/TV) + #vegetative difference, 5 = not duplicate; TV
+      # (min(as.numeric(z[7]), TR)/TR) #reproductive difference, 2 = not duplicate; TR # to give margin 
+      ## Remove min because will either be 1 or less than one
+      (as.numeric(z[3])/ distance) +
+      (as.numeric(z[5])/TS) + #seedlings difference, 8 = not duplicate; TS
+      (as.numeric(z[6])/TV) + #vegetative difference, 5 = not duplicate; TV
+      (as.numeric(z[7])/TR) #reproductive difference, 2 = not duplicate; TR # to give margin 
     
   ## Fixed tolerance, just by distance and only total group size, cluster is variable you can put in. 
-    z[11] <-  #fixed tolerance test
-      if((as.numeric(z[3]) < distance) & (sum(as.numeric(z[5],z[6],z[7])) < cluster)) 1 else 0
+    z[13] <-  #fixed tolerance test
+      # if((as.numeric(z[3]) < distance) & (sum(as.numeric(z[5],z[6],z[7])) < cluster)) 1 else 0
+      if(( as.numeric(z[3]) < distance ) & 
+         ( as.numeric(z[5]) < TS ) & ( as.numeric(z[6]) < TV ) & ( as.numeric(z[6]) < TR )) 1 else 0
     
     
-    z[12] <-  #fixed tolerance test based only on distance
+    z[14] <-  #fixed tolerance test based only on distance
       if((as.numeric(z[3]) < distance) ) 1 else 0
+    
+    
+    ## Use the scores to assign duplicate observations and individual observations
+    # fixed distance tolerance
+    site <- site %>%
+      mutate(new_id)
     
     return(z)
   })
-
+  
   df <- bind_rows(lapply(list, function(z){
            data.frame("id_1" = z[1],
+                      "orientation_1" = z[10],
+                      "orientation_2" = z[11],
                       "id_2" = z[2],
                       "distance" = as.numeric(z[3]),
                       "orientation" = z[4],  ## if on same or different transect 1 = same, 0 = different
@@ -199,16 +229,18 @@ dup.fun <- function(site, distance, cluster, TS = 8, TV = 5, TR = 2){
                       "diff_reproductive"= z[7],
                       "swapped_dir" = z[8],
                       "NA_dir" = z[9],
-                      "discrepency" = as.numeric(z[10]),
-                      "fixed_tolerance" = z[11],
+                      "discrepency" = as.numeric(z[12]),
+                      "fixed_tolerance" = z[13],
+                      "fixed_disttolerance" = z[14],
                       "ThresholdSeedling" = TS,
                       "ThresholdVeg" = TV,
                       "ThresholdRep" = TR)
    }))
  df$dup_id <- UUIDgenerate(use.time = FALSE, n = nrow(df), output = "string") # A new ID to join and mutate to add this same ID to both; Jonathan will add this! 
- ## Need to have assigned duplicate IDs for 
+ ## Need to have assigned duplicate IDs for (1) fixed distance, (2) fixed distance and cluster size/stage, (3) probabilistic inverse logit
  
- return(df)
+ 
+ return(list(site, df))
 }
 
 ####Custom Function 2
@@ -500,12 +532,12 @@ umdo.fun(fram_1, swap = TRUE)
 picnic_1 <-
   mutate(picnic_1,
          zoned = case_when(
-           c(rowSums(mapply(FUN = function(a, b){between(a, b-3, b+3)}, picnic_1[, "y"], c(20, 30, 40, 50))) +
-             rowSums(mapply(FUN = function(a, b){between(a, b-3, b+3)}, picnic_1[, "x"], c(-20, -30, -40)))) == 2 ~ 1,
+           c(rowSums(mapply(FUN = function(a, b){between(a, b-3.1, b+3.1)}, picnic_1[, "y"], c(20, 30, 40, 50))) +
+             rowSums(mapply(FUN = function(a, b){between(a, b-3.1, b+3.1)}, picnic_1[, "x"], c(-20, -30, -40)))) == 2 ~ 1,
            TRUE ~ 0))
 
 
-umarked.picnic <- umdo.fun(picnic_1, swap = TRUE, d = 0.5, c = 10)
+umarked.picnic <- umdo.fun(picnic_1, swap = TRUE, d = 1, c = 5)
  
 picnic_1 %>%
     mutate(swapped_dir = as.factor(swapped_dir)) %>%
@@ -522,8 +554,40 @@ ggplot(  aes(x,y) ) +
 
 
 picDups <- dup.fun(picnic, distance = 1, cluster = 4)
-# 
-picDups 
+pic1Dups <- dup.fun(picnic_1, distance = 1, cluster = 4)
+pic1Dups_821 <- dup.fun(picnic_1, distance = 1, cluster = 4, TS = 8, TV = 2, TR = 1)
+## Higher discrepancy score == less likely to be a duplicate. Lower discrepancy score (approaching zero) == more likely duplicate
+# #4 "orientation" 1 == same transect, 0 == different transect orientation
+# #5 "diff_seedlings" diff seedlings; #6 diff veg; #7 diff repro
+# #10 is a sum of how much distance is less than threshold +
+#                 how much seedling + veg + rep is less than threshold
+
+pic1Dups %>% 
+  filter(fixed_tolerance == 1) %>%
+  ggplot(  aes(discrepency, fill = orientation))+
+    geom_density() +
+    theme_bw()
+
+pic1Dups_821 %>% 
+  filter(fixed_tolerance == 1) %>%
+  ggplot(  aes(discrepency, fill = orientation))+
+    geom_density(alpha = 0.5) +
+    theme_bw()
+
+pic1Dups %>% 
+  filter(fixed_tolerance == 1) %>%
+  ggplot(  aes(distance, fill = orientation))+
+    geom_density() +
+    theme_bw() +
+    facet_wrap( ~swapped_dir )
+
+## left_join the same plant id to the ones with a discrepancy < 1.5
+# want zoned only:
+picnic_1
+# Need to add the same plant ID to duplicates
+picnic_1 %>%
+  filter(pic1Dups_821$id_1)
+  
 ```
 
 
