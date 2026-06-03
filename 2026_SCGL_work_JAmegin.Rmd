@@ -207,40 +207,80 @@ dup.fun <- function(site, distance, cluster, TS = 8, TV = 5, TR = 2){
     
     z[14] <-  #fixed tolerance test based only on distance
       if((as.numeric(z[3]) < distance) ) 1 else 0
-    
-    
-    ## Use the scores to assign duplicate observations and individual observations
-    # fixed distance tolerance
-    site <- site %>%
-      mutate(new_id)
-    
+
     return(z)
   })
   
-  df <- bind_rows(lapply(list, function(z){
-           data.frame("id_1" = z[1],
-                      "orientation_1" = z[10],
-                      "orientation_2" = z[11],
-                      "id_2" = z[2],
-                      "distance" = as.numeric(z[3]),
-                      "orientation" = z[4],  ## if on same or different transect 1 = same, 0 = different
-                      "diff_seedlings" = z[5],
-                      "diff_vegetative"= z[6],
-                      "diff_reproductive"= z[7],
-                      "swapped_dir" = z[8],
-                      "NA_dir" = z[9],
-                      "discrepency" = as.numeric(z[12]),
-                      "fixed_tolerance" = z[13],
-                      "fixed_disttolerance" = z[14],
-                      "ThresholdSeedling" = TS,
-                      "ThresholdVeg" = TV,
-                      "ThresholdRep" = TR)
-   }))
+  # df <- bind_rows(lapply(list, function(z){
+  #          data.frame("id_1" = z[1],
+  #                     "orientation_1" = z[10],
+  #                     "orientation_2" = z[11],
+  #                     "id_2" = z[2],
+  #                     "distance" = as.numeric(z[3]),
+  #                     "orientation" = z[4],  ## if on same or different transect 1 = same, 0 = different
+  #                     "diff_seedlings" = z[5],
+  #                     "diff_vegetative"= z[6],
+  #                     "diff_reproductive"= z[7],
+  #                     "swapped_dir" = z[8],
+  #                     "NA_dir" = z[9],
+  #                     "discrepency" = as.numeric(z[12]),
+  #                     "fixed_tolerance" = z[13],
+  #                     "fixed_disttolerance" = z[14],
+  #                     "ThresholdSeedling" = TS,
+  #                     "ThresholdVeg" = TV,
+  #                     "ThresholdRep" = TR)
+  #  }))
+  ## Faster
+    df <- data.frame(do.call(rbind,list))
+    names(df) <- c("id_1", "id_2",
+                      "distance",
+                      "same_diff",  ## if on same or different transect 1 = same, 0 = different
+                      "diff_seedlings",
+                      "diff_vegetative",
+                      "diff_reproductive",
+                      "swapped_dir",
+                      "NA_dir",
+                      "orientation_1",
+                      "orientation_2",
+                      "discrepency",
+                      "fixed_tolerance",
+                      "fixed_disttolerance")
+    df <- df %>%
+      mutate("ThresholdSeedling" = TS, "ThresholdVeg" = TV,"ThresholdRep" = TR) %>%
+      mutate_at(vars(distance:NA_dir, discrepency:ThresholdRep), as.numeric)
+  
  df$dup_id <- UUIDgenerate(use.time = FALSE, n = nrow(df), output = "string") # A new ID to join and mutate to add this same ID to both; Jonathan will add this! 
+ 
+ ## df wide to long splitting transect orientation and id 
+ df_long <- df %>%
+   pivot_longer(starts_with("id"),
+                values_to = "id") %>%
+   select(distance:dup_id, id) %>%
+   pivot_longer(starts_with("orientation"),
+                values_to = "trans_orientation", 
+                names_prefix = "orientation_") %>%
+   select(distance:id, trans_orientation) %>%
+   distinct()
+
  ## Need to have assigned duplicate IDs for (1) fixed distance, (2) fixed distance and cluster size/stage, (3) probabilistic inverse logit
+ testSite <- site
+
+ # Pull all new_ids that would be duplicates by fixed distance
+ nrow(df_long[df_long$same_diff == 0 & df_long$fixed_disttolerance == 1,])/2
+ nrow(df[df$same_diff == 0 & df$fixed_disttolerance == 1,])
+
+ testSite <- testSite %>%
+   rowwise() %>%
+   mutate(fixDistTol = case_when(
+     (length(df_long$dup_id[df_long$same_diff == 0 & df_long$fixed_disttolerance == 1 & 
+                         df_long$id == new_id & df_long$same_diff == transect_orientation] ) == 1 ) ~
+       df_long$dup_id[df_long$same_diff == 0 & df_long$fixed_disttolerance == 1 & 
+                        df_long$id == new_id & df_long$same_diff == transect_orientation], 
+     TRUE ~ new_id)) 
  
  
- return(list(site, df))
+ 
+ return(list(site, df, df_long))
 }
 
 ####Custom Function 2
