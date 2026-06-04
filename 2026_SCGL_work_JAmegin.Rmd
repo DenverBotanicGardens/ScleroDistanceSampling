@@ -244,7 +244,7 @@ dup.fun <- function(site, distance, cluster, TS = 8, TV = 5, TR = 2){
    filter(distance == min(distance))
  discrepScore <- df_long[df_long$same_diff == 0 & df_long$discrepency < 1, c("id","dup_id","discrepency")] %>%
    rowwise() %>%
-   mutate(discrepYN =  rbinom(1,1,prob = discrepency[1])) %>%
+   mutate(discrepYN =  rbinom(1,1,prob = discrepency)) %>%
    filter(discrepYN == 0) %>% 
    distinct() %>%
    group_by(id) %>%
@@ -255,16 +255,17 @@ dup.fun <- function(site, distance, cluster, TS = 8, TV = 5, TR = 2){
    mutate(fixedDistDupID = case_when(is.na(dup_id) ~ new_id,
                                      TRUE ~ dup_id)) %>%
    dplyr::select(fixedDistDupID, distance_to_group, new_id, transect_orientation, swapped_dir,
-                 number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group) %>%
+                 number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group,
+                 transect_meter_mark) %>%
    mutate(distance = abs(distance_to_group)) %>%
    full_join(discrepScore, by = c("new_id" = "id")) %>%
    mutate(discrepDupId = case_when(is.na(dup_id) ~ new_id,
                                      TRUE ~ dup_id)) %>%
-   dplyr::select(fixedDistDupID, discrepDupId, new_id:distance) %>%
+   dplyr::select(fixedDistDupID, discrepDupId, new_id:distance, transect_meter_mark) %>%
    full_join(dup_fixedDistClust, by = c("new_id" = "id")) %>%
    mutate(fixedDistClustDupID = case_when(is.na(dup_id) ~ new_id,
                                      TRUE ~ dup_id)) %>%
-   dplyr::select(fixedDistDupID,fixedDistClustDupID,discrepDupId,new_id:distance.x) %>%
+   dplyr::select(fixedDistDupID,fixedDistClustDupID,discrepDupId,new_id:distance.x, transect_meter_mark) %>%
    rename(distance = distance.x)
    
  
@@ -575,8 +576,8 @@ picnic_1 <-
 # [[1]]: the input site with the unique ID (new_id) added and the duplicates identified according to fixed distance, fixed distance and cluster size cutoffs, and rbinom for discrepency scores under 1 (over 1 considered not a duplicate)
 # [[2]]: the data frame of paired comparisons
 # [[3]]: the data frame in long form with unique values (instead of comparison of 1 vs 2 and 2 vs 1 in the wide data frame)
-pic1Dups <- dup.fun(picnic_1, distance = 1, cluster = 4, TS = 8, TV = 3, TR = 2)
-pic1Dups_821 <- dup.fun(picnic_1, distance = 0.5, cluster = 10, TS = 8, TV = 2, TR = 1)
+pic1Dups <- dup.fun(picnic_1[picnic_1$zoned == 1,], distance = 1, cluster = 4, TS = 8, TV = 3, TR = 2)
+pic1Dups_821 <- dup.fun(picnic_1[picnic_1$zoned == 1,], distance = 0.5, cluster = 10, TS = 8, TV = 2, TR = 1)
 ## Higher discrepancy score == less likely to be a duplicate. Lower discrepancy score (approaching zero) == more likely duplicate
 # #4 "orientation" 1 == same transect, 0 == different transect orientation
 # #5 "diff_seedlings" diff seedlings; #6 diff veg; #7 diff repro
@@ -584,12 +585,21 @@ pic1Dups_821 <- dup.fun(picnic_1, distance = 0.5, cluster = 10, TS = 8, TV = 2, 
 #                 how much seedling + veg + rep is less than threshold
 
 # Only slightly lower discrepancy score for those on different grid lines. Not surprising 
+### 1 == same transect (known NOT duplicates)
+### 0 == different transects (possible duplicates)
 pic1Dups[[2]] %>% 
   filter(fixed_tolerance == 1) %>%
   ggplot(  aes(discrepency, fill = as.factor(same_diff)))+
     geom_density(alpha = 0.5) +
-    theme_bw()
+    theme_bw() 
 
+pic1Dups[[2]] %>% 
+  filter(fixed_disttolerance == 1) %>%
+  ggplot(  aes(discrepency, fill = as.factor(same_diff)))+
+    geom_density(alpha = 0.5) +
+    theme_bw() 
+
+# distance and cluster size
 pic1Dups_821[[2]] %>% 
   filter(fixed_tolerance == 1) %>%
   ggplot(  aes(discrepency, fill = as.factor(same_diff)))+
@@ -597,6 +607,50 @@ pic1Dups_821[[2]] %>%
     theme_bw()
 
 pic1Dups[[2]] %>%
+  rowwise() %>%
+  mutate(discrepYN = rbinom(1,1, prob = discrepency)) %>%
+  filter(discrepYN == 0) %>%
+  ggplot(  aes(discrepency, fill = as.factor(same_diff)))+
+    geom_density(alpha = 0.5) +
+    theme_bw()
+
+pic1Dups[[2]] %>%
+  filter(discrepency < 1)
+## 
+pic1Dups[[2]] %>%
+  filter(discrepency < 1) %>%
+  rowwise() %>%
+  mutate(discrepYN = rbinom(1,1, prob = discrepency)) %>%
+  # filter(same_diff == 0) %>%
+  ggplot(  aes(distance, discrepYN, color = as.factor(same_diff))) +
+    geom_point(pch = "|")+
+    stat_smooth(method="glm",  method.args = list(family = "binomial"), se=TRUE) +
+    theme_bw() +
+    scale_color_discrete("Transect", labels = c("Possible duplicates","Known NON-duplicates"))
+
+pic1Dups[[2]] %>%
+  filter(discrepency < 1) %>%
+  rowwise() %>%
+  mutate(discrepYN = rbinom(1,1, prob = discrepency)) %>%
+  # filter(same_diff == 0) %>%
+  ggplot(  aes(distance, discrepYN, color = as.factor(same_diff))) +
+    geom_point(pch = "|")+
+    stat_smooth(method="glm",  method.args = list(family = "binomial"), se=TRUE) +
+    theme_bw() +
+    scale_color_discrete("Transect", labels = c("Possible duplicates","Known NON-duplicates"))
+
+## Zero are the duplicates
+pic1Dups[[2]] %>%
+  filter(discrepency < 1) %>%
+  rowwise() %>%
+  mutate(discrepYN = rbinom(1,1, prob = discrepency)) %>%
+  filter(same_diff == 0) %>%
+  ggplot(  aes(distance, diff_reproductive)) +
+    geom_point()+
+    theme_bw() +
+    facet_wrap(~ discrepYN)
+
+
 
 pic1Dups %>% 
   filter(fixed_tolerance == 1) %>%
@@ -605,12 +659,6 @@ pic1Dups %>%
     theme_bw() +
     facet_wrap( ~swapped_dir )
 
-## left_join the same plant id to the ones with a discrepancy < 1.5
-# want zoned only:
-picnic_1
-# Need to add the same plant ID to duplicates
-picnic_1 %>%
-  filter(pic1Dups_821$id_1)
   
 ```
 
@@ -626,8 +674,10 @@ picnic_1 %>%
 Mark-Recapture   
 fixedDistDupID
 ```{r}
+# only zoned
+pic1Dups <- dup.fun(picnic_1[picnic_1$zoned == 1,], distance = 1, cluster = 4, TS = 8, TV = 3, TR = 2)
+
 x <- pic1Dups[[1]] %>%
-  dplyr::select(fixedDistDupID,transect_orientation) %>%
   mutate(dh = 1) %>%
   complete(transect_orientation, fixedDistDupID, 
            fill = list(dh=0)) %>%
@@ -666,19 +716,106 @@ closedshared <- mark(data = Cproc, Cddl, model.parameters =
 get.real(closed, "p", se = TRUE)
 get.real(closed, "f0", se = TRUE)
 get.real(closedshared, "p", se = TRUE)
+
+
+
+pic1Dups_999 <- dup.fun(picnic_1[picnic_1$zoned == 1,], distance = 1, cluster = 10, TS = 9, TV = 9, TR = 9)
+
+x999 <- pic1Dups_999[[1]] %>%
+  mutate(dh = 1) %>%
+  complete(transect_orientation, fixedDistDupID, 
+           fill = list(dh=0)) %>%
+  pivot_wider(id_cols = fixedDistDupID, values_from = dh, names_from = transect_orientation) %>%  
+  unite(ch, EW:NS, sep="") 
+
+x999 %>%
+  filter(ch == "11")
+
+## 66 observed by both
+
+setwd("C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling")
+x %>%
+  mutate(ch = paste0(ch,";")) %>%
+  write.table(file = "Data/Closed.inp",
+              sep = " ", col.names = FALSE, row.names = FALSE)
+
+scglClosed.inp <- convert.inp("Data/Closed.inp",
+                              covariates = NULL,
+                              use.comments = FALSE)
+
+M <- nrow(x) ## 81 unique observations
+clusterSize <- 1.58
+
+## EW then NS
+Cproc <- process.data(x, model = "Closed")
+Cddl <- make.design.data(Cproc)
+
+# constant p and c
+closed <- mark(data = Cproc, Cddl, model.parameters = list(p = list(formula = ~1),
+                                                           c = list(formula = ~1)))
+
+closedshared <- mark(data = Cproc, Cddl, model.parameters = 
+                       list(p = list(formula=~1,share=TRUE)))
+
+get.real(closed, "p", se = TRUE)
+get.real(closed, "f0", se = TRUE)
+get.real(closedshared, "p", se = TRUE)
 ```
 
 ## MRDS  
 ```{r}
+## Fixed distance threshold, select the nearest
+
+pic1Dups_999 <- dup.fun(picnic_1[picnic_1$zoned == 1,], distance = 1, cluster = 10, TS = 9, TV = 9, TR = 9)
 
 library(mrds)
 
-picnic.data1 <- pic1Dups[[1]] %>%
+picnic.data1 <- pic1Dups_999[[1]] %>%
+  mutate(detected = 1) %>%
   rename("object" = fixedDistDupID) %>%
+  # rename("object" = fixedDistClustDupID) %>%
   rename("observer" = transect_orientation) %>%
+  rowwise() %>%
+  mutate(size = sum(c(number_seedlings_in_group, 
+                      number_vegetative_in_group, 
+                      number_reproductive_in_group), na.rm = TRUE)) %>%
+  ungroup() %>%
+  complete(nesting(object,size),observer, fill = list(detected = 0)) %>% ## Keep only size and plantID that are in the data
+  dplyr::select(object,observer, size, detected, distance, transect_meter_mark) %>%
   arrange(object, observer) %>%
   mutate(observer = as.factor(as.numeric(as.factor(observer)))) %>%
-  dplyr::select(object, observer, distance)
+  relocate(size, .after = distance) %>%
+  mutate(object = as.integer(as.factor(object))) %>%
+  ## When grouped, one might be missed, that's the row where distance missing
+  group_by(object) %>%
+  ## each set of two observations
+  ## need to update the group size as well. 
+  mutate(distance2 = case_when(detected == 0 & max(abs(transect_meter_mark), na.rm = TRUE) < 15 ~ abs(10-max(abs(transect_meter_mark), na.rm = TRUE)),
+                        detected == 0  & max(abs(transect_meter_mark), na.rm = TRUE) > 15 & max(abs(transect_meter_mark), na.rm = TRUE) < 25 ~ 
+                                                                                                 abs(20-max(abs(transect_meter_mark), na.rm = TRUE)),
+                        detected == 0  & max(abs(transect_meter_mark), na.rm = TRUE) > 25 & max(abs(transect_meter_mark), na.rm = TRUE) < 35 ~ 
+                                                                                                 abs(30-max(abs(transect_meter_mark), na.rm = TRUE)),
+                        detected == 0  & max(abs(transect_meter_mark), na.rm = TRUE) > 35 & max(abs(transect_meter_mark), na.rm = TRUE) < 45 ~ 
+                                                                                                 abs(40-max(abs(transect_meter_mark), na.rm = TRUE)),
+                        detected == 0  & max(abs(transect_meter_mark), na.rm = TRUE) > 45 & max(abs(transect_meter_mark), na.rm = TRUE) < 55 ~ 
+                                                                                                 abs(50-max(abs(transect_meter_mark), na.rm = TRUE)),
+                        detected == 0  & max(abs(transect_meter_mark), na.rm = TRUE) > 55 & max(abs(transect_meter_mark), na.rm = TRUE) < 65 ~ 
+                                                                                                 abs(60-max(abs(transect_meter_mark), na.rm = TRUE)),
+      TRUE ~ max(distance, na.rm = TRUE)
+                              )) %>%
+  ungroup() %>%
+  dplyr::select(object:detected,size,distance2) %>%
+  rename("distance" = "distance2") %>%
+  group_by(object,observer) %>%
+  ## Where the size differs, only keep larger estimate of size; won't see more than are there, might miss some
+  filter(size == max(size, na.rm = TRUE)) %>%
+  ungroup() %>%
+  distinct()
+  
+
+sizeVariation <- table(picnic.data1$object) ## A few have duplicate observations! so four instead of 2. Fixed by selecting larger
+picnic.data1 %>%
+  filter(object %in% c(sizeVariation != 2))
 
 ## Fully independent   
 # MR only, no distance data
@@ -704,6 +841,22 @@ detection.tables.io <- det.tables(fi.mr.dist.io)
 # Print these detection tables
 print(detection.tables.io)
 plot(fi.mr.dist.io)
+
+############ Swap observer 1 and 2
+picnic.data1.swapObs <- picnic.data1 %>%
+  mutate(observer = case_when(observer == 1 ~ 2,
+                              observer == 2 ~ 1))
+
+fi.mr.dist.swap <- ddf(method = "trial.fi", 
+                  mrmodel = ~ glm(link = 'logit', formula = ~ size), #  distance),
+                  data = picnic.data1.swapObs,
+                  meta.data = list(width = 3))
+
+
+detection.tables.swap <- det.tables(fi.mr.dist.swap)
+# Print these detection tables
+print(detection.tables.swap)
+plot(fi.mr.dist.swap)
 
 ```
 
