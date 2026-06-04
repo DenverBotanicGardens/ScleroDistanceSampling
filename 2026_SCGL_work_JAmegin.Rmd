@@ -106,14 +106,6 @@ oilpad <- scgl1 %>%
 
 ```
 
-ids are duplicated in picnic_1 for the original and the swapped
-```{r}
-picnic_1 %>%
-  ggplot(  aes(object_id)) +
-    geom_histogram(stat = "count") +
-    facet_wrap(~ swapped_dir)
-```
-
 
 ### 2026 function
 
@@ -211,26 +203,6 @@ dup.fun <- function(site, distance, cluster, TS = 8, TV = 5, TR = 2){
     return(z)
   })
   
-  # df <- bind_rows(lapply(list, function(z){
-  #          data.frame("id_1" = z[1],
-  #                     "orientation_1" = z[10],
-  #                     "orientation_2" = z[11],
-  #                     "id_2" = z[2],
-  #                     "distance" = as.numeric(z[3]),
-  #                     "orientation" = z[4],  ## if on same or different transect 1 = same, 0 = different
-  #                     "diff_seedlings" = z[5],
-  #                     "diff_vegetative"= z[6],
-  #                     "diff_reproductive"= z[7],
-  #                     "swapped_dir" = z[8],
-  #                     "NA_dir" = z[9],
-  #                     "discrepency" = as.numeric(z[12]),
-  #                     "fixed_tolerance" = z[13],
-  #                     "fixed_disttolerance" = z[14],
-  #                     "ThresholdSeedling" = TS,
-  #                     "ThresholdVeg" = TV,
-  #                     "ThresholdRep" = TR)
-  #  }))
-  ## Faster
     df <- data.frame(do.call(rbind,list))
     names(df) <- c("id_1", "id_2",
                       "distance",
@@ -255,34 +227,55 @@ dup.fun <- function(site, distance, cluster, TS = 8, TV = 5, TR = 2){
  df_long <- df %>%
    pivot_longer(starts_with("id"),
                 values_to = "id") %>%
-   select(distance:dup_id, id) %>%
+   dplyr::select(distance:dup_id, id) %>%
    pivot_longer(starts_with("orientation"),
                 values_to = "trans_orientation", 
                 names_prefix = "orientation_") %>%
-   select(distance:id, trans_orientation) %>%
+   dplyr::select(distance:id, trans_orientation) %>%
    distinct()
 
  ## Need to have assigned duplicate IDs for (1) fixed distance, (2) fixed distance and cluster size/stage, (3) probabilistic inverse logit
- testSite <- site
-
  # Pull all new_ids that would be duplicates by fixed distance
- nrow(df_long[df_long$same_diff == 0 & df_long$fixed_disttolerance == 1,])/2
- nrow(df[df$same_diff == 0 & df$fixed_disttolerance == 1,])
-
- testSite <- testSite %>%
+ dup_fixedDist <- df_long[df_long$same_diff == 0 & df_long$fixed_disttolerance == 1, c("id","dup_id")] %>%
+   distinct()
+ dup_fixedDistClust <- df_long[df_long$same_diff == 0 & df_long$fixed_tolerance == 1, c("id","dup_id","diff_reproductive","distance")] %>%
+   distinct() %>%
+   group_by(id) %>%
+   filter(distance == min(distance))
+ discrepScore <- df_long[df_long$same_diff == 0 & df_long$discrepency < 1, c("id","dup_id","discrepency")] %>%
    rowwise() %>%
-   mutate(fixDistTol = case_when(
-     (length(df_long$dup_id[df_long$same_diff == 0 & df_long$fixed_disttolerance == 1 & 
-                         df_long$id == new_id & df_long$same_diff == transect_orientation] ) == 1 ) ~
-       df_long$dup_id[df_long$same_diff == 0 & df_long$fixed_disttolerance == 1 & 
-                        df_long$id == new_id & df_long$same_diff == transect_orientation], 
-     TRUE ~ new_id)) 
+   mutate(discrepYN =  rbinom(1,1,prob = discrepency[1])) %>%
+   filter(discrepYN == 0) %>% 
+   distinct() %>%
+   group_by(id) %>%
+   filter(discrepency == min(discrepency))
+
+ testSite <- site %>%
+   full_join(dup_fixedDist, by = c("new_id" = "id")) %>%
+   mutate(fixedDistDupID = case_when(is.na(dup_id) ~ new_id,
+                                     TRUE ~ dup_id)) %>%
+   dplyr::select(fixedDistDupID, distance_to_group, new_id, transect_orientation, swapped_dir,
+                 number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group) %>%
+   mutate(distance = abs(distance_to_group)) %>%
+   full_join(discrepScore, by = c("new_id" = "id")) %>%
+   mutate(discrepDupId = case_when(is.na(dup_id) ~ new_id,
+                                     TRUE ~ dup_id)) %>%
+   dplyr::select(fixedDistDupID, discrepDupId, new_id:distance) %>%
+   full_join(dup_fixedDistClust, by = c("new_id" = "id")) %>%
+   mutate(fixedDistClustDupID = case_when(is.na(dup_id) ~ new_id,
+                                     TRUE ~ dup_id)) %>%
+   dplyr::select(fixedDistDupID,fixedDistClustDupID,discrepDupId,new_id:distance.x) %>%
+   rename(distance = distance.x)
+   
  
- 
- 
- return(list(site, df, df_long))
+ return(list(testSite, df, df_long))
 }
 
+```
+
+
+
+```{r}
 ####Custom Function 2
 #checking for observations that have multiple duplicates & then filtering down to 'most likely'
 ## If discrepancy is over 1, then for sure isn't a duplicate! Filters down to the ones that 'could' be 
@@ -433,7 +426,7 @@ fram_lines <- tibble( x = c(-10, -20, -30, 0, -10, 0, 0, 0),
   
   
 fram_1 %>%
-  select(x,y,swapped_dir,object_id, transect_orientation)
+  dplyr::select(x,y,swapped_dir,object_id, transect_orientation)
 
 
   
@@ -468,7 +461,7 @@ fram_1 %>%
            y > 46.9 & y < 53.1) %>%
   bind_rows(fram_1) %>%
   mutate()
-  select(x, y, object_id, transect_orientation, swapped_dir, number_reproductive_in_group, number_vegetative_in_group) %>%
+  dplyr::select(x, y, object_id, transect_orientation, swapped_dir, number_reproductive_in_group, number_vegetative_in_group) %>%
   arrange(x, y)
   
 ```
@@ -577,42 +570,33 @@ picnic_1 <-
            TRUE ~ 0))
 
 
-umarked.picnic <- umdo.fun(picnic_1, swap = TRUE, d = 1, c = 5)
- 
-picnic_1 %>%
-    mutate(swapped_dir = as.factor(swapped_dir)) %>%
-ggplot(  aes(x,y) ) +
-  geom_point(data = fram_1,  aes(x,y, shape = swapped_dir, color = transect_orientation)) +
-  geom_segment(data = fram_lines, aes(x = x, y = y, xend = xend, yend = yend)) +
-   geom_text(data = fram_lines, 
-            aes( label = label),
-            nudge_x = 4,
-            size = 2,
-            ) +
-    scale_shape_manual(values = c(16,1))
+# umarked.picnic <- umdo.fun(picnic_1, swap = TRUE, d = 1, c = 5)
 
-
-
-picDups <- dup.fun(picnic, distance = 1, cluster = 4)
-pic1Dups <- dup.fun(picnic_1, distance = 1, cluster = 4)
-pic1Dups_821 <- dup.fun(picnic_1, distance = 1, cluster = 4, TS = 8, TV = 2, TR = 1)
+# [[1]]: the input site with the unique ID (new_id) added and the duplicates identified according to fixed distance, fixed distance and cluster size cutoffs, and rbinom for discrepency scores under 1 (over 1 considered not a duplicate)
+# [[2]]: the data frame of paired comparisons
+# [[3]]: the data frame in long form with unique values (instead of comparison of 1 vs 2 and 2 vs 1 in the wide data frame)
+pic1Dups <- dup.fun(picnic_1, distance = 1, cluster = 4, TS = 8, TV = 3, TR = 2)
+pic1Dups_821 <- dup.fun(picnic_1, distance = 0.5, cluster = 10, TS = 8, TV = 2, TR = 1)
 ## Higher discrepancy score == less likely to be a duplicate. Lower discrepancy score (approaching zero) == more likely duplicate
 # #4 "orientation" 1 == same transect, 0 == different transect orientation
 # #5 "diff_seedlings" diff seedlings; #6 diff veg; #7 diff repro
 # #10 is a sum of how much distance is less than threshold +
 #                 how much seedling + veg + rep is less than threshold
 
-pic1Dups %>% 
+# Only slightly lower discrepancy score for those on different grid lines. Not surprising 
+pic1Dups[[2]] %>% 
   filter(fixed_tolerance == 1) %>%
-  ggplot(  aes(discrepency, fill = orientation))+
-    geom_density() +
-    theme_bw()
-
-pic1Dups_821 %>% 
-  filter(fixed_tolerance == 1) %>%
-  ggplot(  aes(discrepency, fill = orientation))+
+  ggplot(  aes(discrepency, fill = as.factor(same_diff)))+
     geom_density(alpha = 0.5) +
     theme_bw()
+
+pic1Dups_821[[2]] %>% 
+  filter(fixed_tolerance == 1) %>%
+  ggplot(  aes(discrepency, fill = as.factor(same_diff)))+
+    geom_density(alpha = 0.5) +
+    theme_bw()
+
+pic1Dups[[2]] %>%
 
 pic1Dups %>% 
   filter(fixed_tolerance == 1) %>%
@@ -628,6 +612,99 @@ picnic_1
 picnic_1 %>%
   filter(pic1Dups_821$id_1)
   
+```
+
+ids are duplicated in picnic_1 for the original and the swapped
+```{r}
+picnic_1 %>%
+  ggplot(  aes(object_id)) +
+    geom_histogram(stat = "count") +
+    facet_wrap(~ swapped_dir)
+```
+
+
+Mark-Recapture   
+fixedDistDupID
+```{r}
+x <- pic1Dups[[1]] %>%
+  dplyr::select(fixedDistDupID,transect_orientation) %>%
+  mutate(dh = 1) %>%
+  complete(transect_orientation, fixedDistDupID, 
+           fill = list(dh=0)) %>%
+  pivot_wider(id_cols = fixedDistDupID, values_from = dh, names_from = transect_orientation) %>%  
+  unite(ch, EW:NS, sep="") 
+
+x %>%
+  filter(ch == "11")
+
+## 66 observed by both
+
+setwd("C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling")
+x %>%
+  mutate(ch = paste0(ch,";")) %>%
+  write.table(file = "Data/Closed.inp",
+              sep = " ", col.names = FALSE, row.names = FALSE)
+
+scglClosed.inp <- convert.inp("Data/Closed.inp",
+                              covariates = NULL,
+                              use.comments = FALSE)
+
+M <- nrow(x) ## 81 unique observations
+clusterSize <- 1.58
+
+## EW then NS
+Cproc <- process.data(x, model = "Closed")
+Cddl <- make.design.data(Cproc)
+
+# constant p and c
+closed <- mark(data = Cproc, Cddl, model.parameters = list(p = list(formula = ~1),
+                                                           c = list(formula = ~1)))
+
+closedshared <- mark(data = Cproc, Cddl, model.parameters = 
+                       list(p = list(formula=~1,share=TRUE)))
+
+get.real(closed, "p", se = TRUE)
+get.real(closed, "f0", se = TRUE)
+get.real(closedshared, "p", se = TRUE)
+```
+
+## MRDS  
+```{r}
+
+library(mrds)
+
+picnic.data1 <- pic1Dups[[1]] %>%
+  rename("object" = fixedDistDupID) %>%
+  rename("observer" = transect_orientation) %>%
+  arrange(object, observer) %>%
+  mutate(observer = as.factor(as.numeric(as.factor(observer)))) %>%
+  dplyr::select(object, observer, distance)
+
+## Fully independent   
+# MR only, no distance data
+fi.mr.dist <- ddf(method = "trial.fi", 
+                  mrmodel = ~ glm(link = 'logit', formula = ~ size), #  distance),
+                  data = picnic.data1,
+                  meta.data = list(width = 3))
+
+
+detection.tables <- det.tables(fi.mr.dist)
+# Print these detection tables
+print(detection.tables)
+plot(fi.mr.dist)
+
+
+fi.mr.dist.io <- ddf(method = "io.fi", 
+                  mrmodel = ~ glm(link = 'logit', formula = ~ size), #  distance),
+                  data = picnic.data1,
+                  meta.data = list(width = 3))
+
+
+detection.tables.io <- det.tables(fi.mr.dist.io)
+# Print these detection tables
+print(detection.tables.io)
+plot(fi.mr.dist.io)
+
 ```
 
 
