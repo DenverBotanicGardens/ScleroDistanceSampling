@@ -257,16 +257,18 @@ dup.fun <- function(site, distance, cluster, TS = 8, TV = 5, TR = 2){
    dplyr::select(fixedDistDupID, distance_to_group, new_id, transect_orientation, swapped_dir,
                  number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group,
                  transect_meter_mark) %>%
-   mutate(distance = abs(distance_to_group)) %>%
+   mutate(distance_to_group = abs(distance_to_group)) %>% ## Distance is already the distance between points
    full_join(discrepScore, by = c("new_id" = "id")) %>%
    mutate(discrepDupId = case_when(is.na(dup_id) ~ new_id,
                                      TRUE ~ dup_id)) %>%
-   dplyr::select(fixedDistDupID, discrepDupId, new_id:distance, transect_meter_mark) %>%
+   ## dup_id isn't matching .x and .y because it either selects the dup_id or keeps the new_id
+   dplyr::select(fixedDistDupID, discrepDupId, new_id, distance_to_group:transect_meter_mark, 
+                 discrepency:discrepYN) %>%
    full_join(dup_fixedDistClust, by = c("new_id" = "id")) %>%
    mutate(fixedDistClustDupID = case_when(is.na(dup_id) ~ new_id,
                                      TRUE ~ dup_id)) %>%
-   dplyr::select(fixedDistDupID,fixedDistClustDupID,discrepDupId,new_id:distance.x, transect_meter_mark) %>%
-   rename(distance = distance.x)
+   dplyr::select(fixedDistDupID,fixedDistClustDupID,discrepDupId,new_id, dup_id, distance_to_group,
+                 transect_orientation:discrepYN, diff_reproductive, distance) 
    
  
  return(list(testSite, df, df_long))
@@ -566,8 +568,8 @@ umdo.fun(fram_1, swap = TRUE)
 picnic_1 <-
   mutate(picnic_1,
          zoned = case_when(
-           c(rowSums(mapply(FUN = function(a, b){between(a, b-3.1, b+3.1)}, picnic_1[, "y"], c(20, 30, 40, 50))) +
-             rowSums(mapply(FUN = function(a, b){between(a, b-3.1, b+3.1)}, picnic_1[, "x"], c(-20, -30, -40)))) == 2 ~ 1,
+           c(rowSums(mapply(FUN = function(a, b){between(a, b-3, b+3)}, picnic_1[, "y"], c(20, 30, 40, 50))) +
+             rowSums(mapply(FUN = function(a, b){between(a, b-3, b+3)}, picnic_1[, "x"], c(-20, -30, -40)))) == 2 ~ 1,
            TRUE ~ 0))
 
 
@@ -651,18 +653,14 @@ pic1Dups[[2]] %>%
     facet_wrap(~ discrepYN)
 
 
-
-pic1Dups %>% 
-  filter(fixed_tolerance == 1) %>%
-  ggplot(  aes(distance, fill = orientation))+
-    geom_density() +
-    theme_bw() +
-    facet_wrap( ~swapped_dir )
-
-  
 ```
 
-ids are duplicated in picnic_1 for the original and the swapped
+ids are duplicated in picnic_1 for the original and the swapped  
+## Need to remove all the swapped ones that are not closer. 
+group_by plant Id and only keep the one with the closer distance (if within the threshold) or only keep original.  
+    case_when pair with other transect is closer and < 1 meter ~ keep this one
+    case_when pair has neither swapped or original within 1 meter, keep original
+    case_when direction_to_group was NA, keep the one with a closer distance to another one?? | if none within 1 meter, keep one at random. 
 ```{r}
 picnic_1 %>%
   ggplot(  aes(object_id)) +
@@ -675,7 +673,7 @@ Mark-Recapture
 fixedDistDupID
 ```{r}
 # only zoned
-pic1Dups <- dup.fun(picnic_1[picnic_1$zoned == 1,], distance = 1, cluster = 4, TS = 8, TV = 3, TR = 2)
+pic1Dups <- dup.fun(picnic_1[picnic_1$zoned == 1,], distance = 1, cluster = 13, TS = 8, TV = 3, TR = 2)
 
 x <- pic1Dups[[1]] %>%
   mutate(dh = 1) %>%
@@ -771,6 +769,9 @@ pic1Dups_999 <- dup.fun(picnic_1[picnic_1$zoned == 1,], distance = 1, cluster = 
 library(mrds)
 
 picnic.data1 <- pic1Dups_999[[1]] %>%
+  ## rename distance_to_group to distance, ignore "distance" which is the distance between observations
+  dplyr::select(!distance) %>%
+  rename(distance = distance_to_group) %>%
   mutate(detected = 1) %>%
   rename("object" = fixedDistDupID) %>%
   # rename("object" = fixedDistClustDupID) %>%
@@ -829,6 +830,10 @@ detection.tables <- det.tables(fi.mr.dist)
 # Print these detection tables
 print(detection.tables)
 plot(fi.mr.dist)
+
+picnic.data1 %>%
+  ggplot(  aes(distance, fill = observer)) +
+    geom_histogram()
 
 
 fi.mr.dist.io <- ddf(method = "io.fi", 
