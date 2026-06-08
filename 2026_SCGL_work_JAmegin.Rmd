@@ -54,7 +54,7 @@ scgl[is.na(scgl[,"number_vegetative_in_group"]), "number_vegetative_in_group"] <
 scgl[is.na(scgl[,"number_reproductive_in_group"]), "number_reproductive_in_group"] <- 0
 
 #adding clone observations with the 'direction_to_group' swapped for later analysis
-#some observations had NA, so need to check both directons for them
+#some observations had NA, so need to check both directions for them
 ### The NA+ and NA-  see lines 74, default is + for direction
 scgl1 <- rbind(scgl,
                mutate(scgl,
@@ -125,28 +125,72 @@ Covariates affecting probability:
 function to apply comparison to each object_id pair by referencing the fram_1 table Needs
 to use the combn() pairs and parse the fram_1 table and then compare the covariates to
 evaluate a probability score
+```{r}
+## testing
+site <- picnic_1[picnic_1$zoned == 1,]
+Tdistance <- 1
+Tcluster <- 12
+TS <- 5
+TV <- 2
+TR <- 1
+
+## doesn't also have the reverse
+foo <- utils::combn(1:3, m = 2, simplify = FALSE)
+do.call(rbind,foo)
+## expand.grid does give both 1 2 and 2 1
+foo1 <- expand.grid(x = 1:3, y = 1:3)
+foo1
+
+data.frame(do.call(rbind,list))
+```
+
 
 ```{r}
 ###Custom Function 1
-dup.fun <- function(site, distance, cluster, TS = 8, TV = 5, TR = 2){
+# Input plot data mapped to (X, Y) grid and plants added with the direction_to_group swapped - test uncertainty of direction
+dup.fun <- function(site, Tdistance = 1, Tcluster = 12, TS = 8, TV = 2, TR = 2){
   
   #making new column with new UUID for each observation due to cloned entries
   site$new_id = UUIDgenerate(use.time = FALSE, n = nrow(site), output = "string")
   
-  #Creating list of all combinations of global_id's to reference
-  list <- utils::combn(site$new_id, m = 2, simplify = FALSE)
+  #Creating list of all combinations of global_id's to reference, order doesn't matter, start with only original
+  list <- utils::combn(site$new_id[site$swapped_dir == 0], m = 2, simplify = FALSE)
+
   #Appending calculated variables to the list  
   list <- lapply(list, function(list.1){
 
     #indexing data with the paired global_ids
     a <- site[site$new_id == list.1[1],]
     b <- site[site$new_id == list.1[2],]
+    
+    # Check the swapped 
+    a1 <- site[site$object_id == a$object_id & site$swapped_dir == 1,]
+    b1 <- site[site$object_id == b$object_id & site$swapped_dir == 1,]
 
-    #Calculating distance
-    list.1[3] <- dist(rbind(c(a$x,a$y), c(b$x,b$y)), method = "euclidean")
+    #Calculating distance, if the swapped is closer, then always use the swapped, only if on different transects
+    if(a$transect_orientation != b$transect_orientation){
+      Original <- dist(rbind(c(a$x,a$y), c(b$x,b$y)), method = "euclidean")
+      SwappedA <- dist(rbind(c(a1$x,a$y), c(b$x,b$y)), method = "euclidean")
+      SwappedB <- dist(rbind(c(a$x,a$y), c(b1$x,b$y)), method = "euclidean")
+      SwappedAB <- dist(rbind(c(a1$x,a$y), c(b1$x,b$y)), method = "euclidean")
+      
+      if(any(c(Original,SwappedA,SwappedB,SwappedAB)< Tdistance)){
+        ## Which should be swapped
+        SwapMe <- c("a_b","a1_b","a_b1","a1_b1")[which.min(c(Original,SwappedA,SwappedB,SwappedAB))]
+        list.1[3] <- min(Original, SwappedA, SwappedB, SwappedAB)
+      } else {
+        list.1[3] <- dist(rbind(c(a$x,a$y), c(b$x,b$y)), method = "euclidean")
+        SwapMe <- "a_b"  
+      }
+      
+    } else {
+      list.1[3] <- dist(rbind(c(a$x,a$y), c(b$x,b$y)), method = "euclidean")
+      SwapMe <- "a_b"
+    }
+                           
 
     #determining if they are on the same transect
-    ## Then take out the ones that are on the same
+    ## same == 1, different == 0
     list.1[4] <- case_when(a$transect_orientation == b$transect_orientation ~ 1,
                            a$transect_orientation != b$transect_orientation ~ 0)
 
@@ -158,18 +202,18 @@ dup.fun <- function(site, distance, cluster, TS = 8, TV = 5, TR = 2){
     #Comparing if the 'direction_from_transect' variable was swapped earlier
     #attempts to correct for potential recorder error
     #could change to a calculation to make weighting the probability score easier
-    ## Michelle notes: (1) check if the swapped point is closer than the original
-    list.1[8] <- as.numeric(a$swapped_dir) + as.numeric(b$swapped_dir) ## sums 0, 1, or 2 to see who was swapped
-    list.1[9] <- case_when(str_detect(a$direction_to_group, pattern = "NA") &
-                            str_detect(b$direction_to_group, pattern = "NA") ~ 2,
-                           xor(str_detect(a$direction_to_group, pattern = "NA"),  ## if one is true == xor
-                            str_detect(b$direction_to_group, pattern = "NA")) ~ 1,
-                            TRUE ~ 0)
+    ## Michelle notes: (1) check if the swapped point is closer than the original - do the comparison for when the ID matches
+    ## Swapped or not ID for first
+    list.1[8] <- case_when(any(sapply(SwapMe, str_detect, "a1")) ~ a1$new_id,
+                           TRUE ~ a$new_id) ## id_1_updated
+    list.1[9] <- case_when(any(sapply(SwapMe, str_detect, "b1")) ~ b1$new_id,
+                           TRUE ~ b$new_id) ## id_1_updated
     #The orientation of id_1
     list.1[10] <- a$transect_orientation
     list.1[11] <- b$transect_orientation
      return(list.1)
   })
+
 
   
   #use the Hamilton, et. al discrepancy score equation as a base
@@ -185,90 +229,89 @@ dup.fun <- function(site, distance, cluster, TS = 8, TV = 5, TR = 2){
       # (min(as.numeric(z[6]), TV)/TV) + #vegetative difference, 5 = not duplicate; TV
       # (min(as.numeric(z[7]), TR)/TR) #reproductive difference, 2 = not duplicate; TR # to give margin 
       ## Remove min because will either be 1 or less than one
-      (as.numeric(z[3])/ distance) +
+      (as.numeric(z[3])/ Tdistance) +
       (as.numeric(z[5])/TS) + #seedlings difference, 8 = not duplicate; TS
       (as.numeric(z[6])/TV) + #vegetative difference, 5 = not duplicate; TV
       (as.numeric(z[7])/TR) #reproductive difference, 2 = not duplicate; TR # to give margin 
     
   ## Fixed tolerance, just by distance and only total group size, cluster is variable you can put in. 
     z[13] <-  #fixed tolerance test
-      # if((as.numeric(z[3]) < distance) & (sum(as.numeric(z[5],z[6],z[7])) < cluster)) 1 else 0
-      if(( as.numeric(z[3]) < distance ) & 
+      # if((as.numeric(z[3]) < Tdistance) & (sum(as.numeric(z[5],z[6],z[7])) < cluster)) 1 else 0
+      if(( as.numeric(z[3]) < Tdistance ) & 
          ( as.numeric(z[5]) < TS ) & ( as.numeric(z[6]) < TV ) & ( as.numeric(z[6]) < TR )) 1 else 0
     
     
     z[14] <-  #fixed tolerance test based only on distance
-      if((as.numeric(z[3]) < distance) ) 1 else 0
+      if((as.numeric(z[3]) < Tdistance) ) 1 else 0
 
     return(z)
   })
   
     df <- data.frame(do.call(rbind,list))
     names(df) <- c("id_1", "id_2",
-                      "distance",
+                      "distanceBetween",
                       "same_diff",  ## if on same or different transect 1 = same, 0 = different
                       "diff_seedlings",
                       "diff_vegetative",
                       "diff_reproductive",
-                      "swapped_dir",
-                      "NA_dir",
-                      "orientation_1",
-                      "orientation_2",
+                      "V1_updatedid",  # after checking if need to be swapped
+                      "V2_updatedid",  # after checking if need to be swapped
+                      "V1_orientation",
+                      "V2_orientation",
                       "discrepency",
                       "fixed_tolerance",
                       "fixed_disttolerance")
     df <- df %>%
       mutate("ThresholdSeedling" = TS, "ThresholdVeg" = TV,"ThresholdRep" = TR) %>%
-      mutate_at(vars(distance:NA_dir, discrepency:ThresholdRep), as.numeric)
+      mutate_at(vars(distanceBetween:diff_reproductive, discrepency:ThresholdRep), as.numeric)
+    
+     
   
- df$dup_id <- UUIDgenerate(use.time = FALSE, n = nrow(df), output = "string") # A new ID to join and mutate to add this same ID to both; Jonathan will add this! 
+ df$dupID <- UUIDgenerate(use.time = FALSE, n = nrow(df), output = "string") 
  
  ## df wide to long splitting transect orientation and id 
  df_long <- df %>%
-   pivot_longer(starts_with("id"),
-                values_to = "id") %>%
-   dplyr::select(distance:dup_id, id) %>%
-   pivot_longer(starts_with("orientation"),
-                values_to = "trans_orientation", 
-                names_prefix = "orientation_") %>%
-   dplyr::select(distance:id, trans_orientation) %>%
-   distinct()
+   dplyr::select(!(id_1:id_2)) %>%
+   pivot_longer(cols = starts_with("V"), names_to = c("ID", ".value"),
+                names_sep = "_") %>%
+   dplyr::select(dupID, updatedid:orientation, distanceBetween:ThresholdRep) %>%
+   left_join(site, by = c("updatedid" = "new_id")) %>%
+   rename(ISSwapped = swapped_dir)
 
  ## Need to have assigned duplicate IDs for (1) fixed distance, (2) fixed distance and cluster size/stage, (3) probabilistic inverse logit
  # Pull all new_ids that would be duplicates by fixed distance
- dup_fixedDist <- df_long[df_long$same_diff == 0 & df_long$fixed_disttolerance == 1, c("id","dup_id")] %>%
+ dup_fixedDist <- df_long[df_long$same_diff == 0 & df_long$fixed_disttolerance == 1, c("updatedid","dupID")] %>%
    distinct()
- dup_fixedDistClust <- df_long[df_long$same_diff == 0 & df_long$fixed_tolerance == 1, c("id","dup_id","diff_reproductive","distance")] %>%
+ dup_fixedDistClust <- df_long[df_long$same_diff == 0 & df_long$fixed_tolerance == 1, c("updatedid","dupID","diff_reproductive","distanceBetween")] %>%
    distinct() %>%
-   group_by(id) %>%
-   filter(distance == min(distance))
- discrepScore <- df_long[df_long$same_diff == 0 & df_long$discrepency < 1, c("id","dup_id","discrepency")] %>%
+   group_by(updatedid) %>%
+   filter(distanceBetween == min(distanceBetween))
+ discrepScore <- df_long[df_long$same_diff == 0 & df_long$discrepency < 1, c("updatedid","dupID","discrepency")] %>%
    rowwise() %>%
    mutate(discrepYN =  rbinom(1,1,prob = discrepency)) %>%
    filter(discrepYN == 0) %>% 
    distinct() %>%
-   group_by(id) %>%
+   group_by(updatedid) %>%
    filter(discrepency == min(discrepency))
 
  testSite <- site %>%
-   full_join(dup_fixedDist, by = c("new_id" = "id")) %>%
-   mutate(fixedDistDupID = case_when(is.na(dup_id) ~ new_id,
-                                     TRUE ~ dup_id)) %>%
+   full_join(dup_fixedDist, by = c("new_id" = "updatedid")) %>%
+   mutate(fixedDistDupID = case_when(is.na(dupID) ~ new_id,
+                                     TRUE ~ dupID)) %>%
    dplyr::select(fixedDistDupID, distance_to_group, new_id, transect_orientation, swapped_dir,
                  number_seedlings_in_group, number_vegetative_in_group, number_reproductive_in_group,
                  transect_meter_mark) %>%
    mutate(distance_to_group = abs(distance_to_group)) %>% ## Distance is already the distance between points
-   full_join(discrepScore, by = c("new_id" = "id")) %>%
-   mutate(discrepDupId = case_when(is.na(dup_id) ~ new_id,
-                                     TRUE ~ dup_id)) %>%
-   ## dup_id isn't matching .x and .y because it either selects the dup_id or keeps the new_id
-   dplyr::select(fixedDistDupID, discrepDupId, new_id, distance_to_group:transect_meter_mark, 
+   full_join(discrepScore, by = c("new_id" = "updatedid")) %>%
+   mutate(discrepDupId = case_when(is.na(dupID) ~ new_id,
+                                     TRUE ~ dupID)) %>%
+   dplyr::select(fixedDistDupID, discrepDupId, distance_to_group:transect_meter_mark, 
                  discrepency:discrepYN) %>%
-   full_join(dup_fixedDistClust, by = c("new_id" = "id")) %>%
-   mutate(fixedDistClustDupID = case_when(is.na(dup_id) ~ new_id,
-                                     TRUE ~ dup_id)) %>%
-   dplyr::select(fixedDistDupID,fixedDistClustDupID,discrepDupId,new_id, dup_id, distance_to_group,
-                 transect_orientation:discrepYN, diff_reproductive, distance) 
+   full_join(dup_fixedDistClust, by = c("new_id" = "updatedid")) %>%
+   mutate(fixedDistClustDupID = case_when(is.na(dupID) ~ new_id,
+                                     TRUE ~ dupID)) %>%
+   dplyr::select(fixedDistDupID,fixedDistClustDupID,discrepDupId,new_id, dupID, distance_to_group,
+                 transect_orientation:discrepYN, diff_reproductive, distanceBetween) 
    
  
  return(list(testSite, df, df_long))
@@ -276,6 +319,27 @@ dup.fun <- function(site, distance, cluster, TS = 8, TV = 5, TR = 2){
 
 ```
 
+```{r}
+## How often did it swap? Not very often!
+data.frame(do.call(rbind, list)) %>%
+  mutate(SwappedAorB = case_when((X1 != X8 & X2 == X9) ~ "a1",
+                                 (X2 != X9 & X1 == X8) ~ "b1",
+                                 (X1 != X8 & X2 != X9) ~ "a1b1",
+                                 TRUE ~ "original")) %>%
+  group_by(SwappedAorB) %>%
+  summarise(n = n())
+
+
+
+data.frame(do.call(rbind, list)) %>%
+  filter(is.na(X3))
+
+picnic_1 %>%
+  filter(swapped_dir == 0) %>%
+  ggplot( aes(x,y, color = transect_orientation)) +
+    geom_point()
+
+```
 
 
 ```{r}
@@ -572,7 +636,12 @@ picnic_1 <-
              rowSums(mapply(FUN = function(a, b){between(a, b-3, b+3)}, picnic_1[, "x"], c(-20, -30, -40)))) == 2 ~ 1,
            TRUE ~ 0))
 
+## Add unique ID for each zone, only compare plants within a zone, not across all plants
 
+
+```
+
+```{r}
 # umarked.picnic <- umdo.fun(picnic_1, swap = TRUE, d = 1, c = 5)
 
 # [[1]]: the input site with the unique ID (new_id) added and the duplicates identified according to fixed distance, fixed distance and cluster size cutoffs, and rbinom for discrepency scores under 1 (over 1 considered not a duplicate)
