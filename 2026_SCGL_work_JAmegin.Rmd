@@ -139,8 +139,9 @@ picnic_1 <-
            TRUE ~ 0))
 
 ## Add unique ID for each zone, only compare plants within a zone, not across all plants
-
-
+# as a factor, fine. Where did object_id 19 come from???
+picnic_1 %>%
+  filter(object_id == 236)
 ```
 
 ### 2026 function
@@ -163,6 +164,8 @@ to use the combn() pairs and parse the fram_1 table and then compare the covaria
 evaluate a probability score
 ```{r}
 ## testing
+str(picnic_1)
+
 site <- picnic_1[picnic_1$zoned == 1,]
 Tdistance <- 1
 # Tcluster <- 12
@@ -307,20 +310,31 @@ dup.fun <- function(site, Tdistance = 1){ # , Tcluster = 12, TS = 8, TV = 2, TR 
                       "V2_objectID")
 
  df$dupID <- UUIDgenerate(use.time = FALSE, n = nrow(df), output = "string") 
+ 
+ ### check to see what it has
+firsts <- df %>%
+  # mutate(V1_objectID = as.numeric(V1_objectID)) %>%
+  group_by(V1_id1, V1_objectID) %>%
+  summarise(n = n()) ## 90
+seconds <- df %>%
+  # mutate(V2_objectID = as.numeric(V2_objectID)) %>%
+  group_by(V2_id2, V2_objectID) %>%
+  summarise(n = n())  ## 90 - missing object_id 236
+originals <- site %>%
+  # mutate(object_id = as.numeric(object_id)) %>%
+  group_by(object_id) %>%
+  summarise(n = n()) ## 91??
 
- # ## Wide to long isn't working correctly
- # df1 <- df %>%
- #   filter(same_diff == 0) %>%
- #   filter(distanceBetween < Tdistance) %>%
- #   select(V1_id1, distanceBetween, V1_updatedid, V1_orientation, V1_swapped, V1_objectID) %>%
- #   group_by(V1_id1) %>%
- #   filter(distanceBetween == min(distanceBetween))
- # df2 <- df %>%
- #   filter(same_diff == 0) %>%
- #   filter(distanceBetween < Tdistance) %>%
- #   select(V2_id2, distanceBetween, V2_updatedid, V2_orientation, V2_swapped, V2_objectID) %>%
- #   group_by(V2_id2) %>%
- #   filter(distanceBetween == min(distanceBetween))
+length(setdiff(originals$object_id, firsts$V1_objectID)) ## 62 not included
+length(setdiff(originals$object_id, seconds$V2_objectID)) ## 61 not included
+setdiff(firsts$V1_objectID, seconds$V2_objectID) # 19
+setdiff(seconds$V2_objectID, firsts$V1_objectID) # 236
+site %>%
+  filter(object_id %in% c(236,19))
+site %>%
+  filter(object_id == 19) ## why does it dissapear? 
+
+
  ## df wide to long splitting transect orientation and id; keep only the swapped or original. 
  df_long <- df %>%
    filter(same_diff == 0) %>%
