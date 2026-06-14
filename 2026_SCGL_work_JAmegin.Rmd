@@ -222,6 +222,9 @@ siteout %>%
 # Input plot data mapped to (X, Y) grid and plants added with the direction_to_group swapped - test uncertainty of direction
 dup.fun <- function(site, Tdistance = 1){ # , Tcluster = 12, TS = 8, TV = 2, TR = 2){
   
+  site <- site %>%
+    mutate_at(c("object_id"), ~as.numeric(as.character(.)))
+  
   #making new column with new UUID for each observation due to cloned entries
   site$new_id = UUIDgenerate(use.time = FALSE, n = nrow(site), output = "string")
   
@@ -297,7 +300,7 @@ dup.fun <- function(site, Tdistance = 1){ # , Tcluster = 12, TS = 8, TV = 2, TR 
   
 
     df <- data.frame(do.call(rbind,list))
-    names(df) <- c("V1_id1", "V2_id2",
+    names(df) <- c("V1_id", "V2_id",
                       "distanceBetween",
                       "same_diff",  ## if on same or different transect 1 = same, 0 = different
                       "V1_updatedid",  # after checking if need to be swapped
@@ -310,7 +313,49 @@ dup.fun <- function(site, Tdistance = 1){ # , Tcluster = 12, TS = 8, TV = 2, TR 
                       "V2_objectID")
 
  df$dupID <- UUIDgenerate(use.time = FALSE, n = nrow(df), output = "string") 
+
+
+ ## df wide to long splitting transect orientation and id; keep only the swapped or original. 
+ df_long <- df %>%
+   filter(same_diff == 0) %>%
+   filter(distanceBetween < Tdistance) %>%
+   pivot_longer(cols = starts_with("V"), names_to = c("ID", ".value"),
+                names_sep = "_") %>%
+   mutate_at(c("objectID","distanceBetween","same_diff"), ~as.numeric(as.character(.))) %>%
+   group_by(objectID) %>%
+   filter(distanceBetween == min(distanceBetween)) %>%
+   arrange(desc(swapped)) %>%
+   filter(row_number() == 1) %>%
+   ungroup() %>%
+   select(!c(ID, same_diff)) 
+
+ ## When these are changed from chr to numeric, the number changes!!! (until you add an as.character first)
+setdiff(df_long$objectID, site$object_id) %>% as.numeric(as.character()) %>% sort()  ## of those in df_long, here are the ones not in site == zero!! fixed with earlier type change
+setdiff(site$object_id, df_long$objectID) %>% as.numeric(as.character()) %>% sort()  ## of those in site, here are the ones not in df_long
  
+ # The updated ID is the swapped or original (if swapped is < Tdistance) 
+ # the dupID should be applied to the updatedid when < Tdistance
+ siteout <- site %>%
+   mutate(object_id = as.numeric(object_id)) %>%
+   left_join(df_long, by = c("new_id" = "updatedid")) %>%
+   mutate(dupID = case_when(is.na(dupID) ~ new_id,
+                            TRUE ~ dupID)) %>%
+   filter(case_when(swapped == 0 ~ swapped_dir == 0,
+                    swapped == 1 ~ swapped_dir == 1))
+   # group_by(object_id) %>%
+   # filter(distanceBetween == min(distanceBetween))
+
+ return(siteout)
+}
+
+```
+
+```{r}
+
+one <- 1:10
+two <- 5:15
+setdiff(one,two) 
+setdiff(two,one)
  ### check to see what it has
 firsts <- df %>%
   # mutate(V1_objectID = as.numeric(V1_objectID)) %>%
@@ -330,43 +375,8 @@ length(setdiff(originals$object_id, seconds$V2_objectID)) ## 61 not included
 setdiff(firsts$V1_objectID, seconds$V2_objectID) # 19
 setdiff(seconds$V2_objectID, firsts$V1_objectID) # 236
 site %>%
+  mutate(object_id = as.numeric(object_id)) %>%
   filter(object_id %in% c(236,19))
-site %>%
-  filter(object_id == 19) ## why does it dissapear? 
-
-
- ## df wide to long splitting transect orientation and id; keep only the swapped or original. 
- df_long <- df %>%
-   filter(same_diff == 0) %>%
-   filter(distanceBetween < Tdistance) %>%
-   pivot_longer(cols = starts_with("V"), names_to = c("ID", ".value"),
-                names_sep = "_") %>%
-   group_by(objectID) %>%
-   filter(distanceBetween == min(distanceBetween)) %>%
-   arrange(desc(swapped)) %>%
-   filter(row_number() == 1) %>%
-   ungroup() %>%
-   select(!c(id1, id2, ID, same_diff)) %>%
-   mutate(objectID = as.numeric(objectID))
-
- # The updated ID is the swapped or original (if swapped is < Tdistance) 
- # the dupID should be applied to the updatedid when < Tdistance
- siteout <- site %>%
-   mutate(object_id = as.numeric(object_id)) %>%
-   left_join(df_long, by = c("new_id" = "updatedid")) %>%
-   mutate(dupID = case_when(is.na(dupID) ~ new_id,
-                            TRUE ~ dupID)) %>%
-   filter(case_when(swapped == 0 ~ swapped_dir == 0,
-                    swapped == 1 ~ swapped_dir == 1))
-   # group_by(object_id) %>%
-   # filter(distanceBetween == min(distanceBetween))
-
- return(siteout)
-}
-
-```
-
-```{r}
 
 siteout %>%
   select(object_id, distance_to_group, objectID)
