@@ -329,58 +329,35 @@ dup.fun <- function(site, Tdistance = 1){ # , Tcluster = 12, TS = 8, TV = 2, TR 
    ungroup() %>%
    select(!c(ID, same_diff)) 
 
- ## When these are changed from chr to numeric, the number changes!!! (until you add an as.character first)
-setdiff(df_long$objectID, site$object_id) %>% as.numeric(as.character()) %>% sort()  ## of those in df_long, here are the ones not in site == zero!! fixed with earlier type change
-setdiff(site$object_id, df_long$objectID) %>% as.numeric(as.character()) %>% sort()  ## of those in site, here are the ones not in df_long
- 
  # The updated ID is the swapped or original (if swapped is < Tdistance) 
  # the dupID should be applied to the updatedid when < Tdistance
  siteout <- site %>%
-   mutate(object_id = as.numeric(object_id)) %>%
    left_join(df_long, by = c("new_id" = "updatedid")) %>%
    mutate(dupID = case_when(is.na(dupID) ~ new_id,
                             TRUE ~ dupID)) %>%
-   filter(case_when(swapped == 0 ~ swapped_dir == 0,
-                    swapped == 1 ~ swapped_dir == 1))
-   # group_by(object_id) %>%
-   # filter(distanceBetween == min(distanceBetween))
-
+   mutate(objectID = case_when(is.na(objectID) ~ object_id,
+                               TRUE ~ objectID)) %>%
+   group_by(object_id) %>%
+   ## need to keep only swapped_dir == 0 unless swapped was true (1)
+   filter(case_when(swapped == 1 ~ swapped_dir == 1,
+                    TRUE ~ swapped_dir == 0)) %>%
+   ungroup() %>%
+   as.data.frame()
+   
  return(siteout)
 }
 
 ```
 
 ```{r}
-
-one <- 1:10
-two <- 5:15
-setdiff(one,two) 
-setdiff(two,one)
- ### check to see what it has
-firsts <- df %>%
-  # mutate(V1_objectID = as.numeric(V1_objectID)) %>%
-  group_by(V1_id1, V1_objectID) %>%
-  summarise(n = n()) ## 90
-seconds <- df %>%
-  # mutate(V2_objectID = as.numeric(V2_objectID)) %>%
-  group_by(V2_id2, V2_objectID) %>%
-  summarise(n = n())  ## 90 - missing object_id 236
-originals <- site %>%
-  # mutate(object_id = as.numeric(object_id)) %>%
-  group_by(object_id) %>%
-  summarise(n = n()) ## 91??
-
-length(setdiff(originals$object_id, firsts$V1_objectID)) ## 62 not included
-length(setdiff(originals$object_id, seconds$V2_objectID)) ## 61 not included
-setdiff(firsts$V1_objectID, seconds$V2_objectID) # 19
-setdiff(seconds$V2_objectID, firsts$V1_objectID) # 236
 site %>%
-  mutate(object_id = as.numeric(object_id)) %>%
-  filter(object_id %in% c(236,19))
+  group_by(object_id) %>%
+  summarise(n = n()) ## 91
 
 siteout %>%
-  select(object_id, distance_to_group, objectID)
-  
+  group_by(object_id) %>%
+  summarise(n = n())  # 45
+
 # objectID should match object_id once merged
 df_long %>%
   group_by(objectID) %>%
@@ -629,77 +606,6 @@ fram_1 %>%
   
 ```
 
-Testing
-```{r}
-
-site <- fram_1
-#making new column with new UUID for each observation due to cloned entries
-  site$new_id = UUIDgenerate(use.time = FALSE, n = nrow(site), output = "string")
-  #Creating list of all combinations of global_id's to reference
-  list <- utils::combn(site$new_id, m = 2, simplify = FALSE)
-  #Appending calculated variables to the list  
-  list <- lapply(list, function(list.1){
-
-    #indexing data with the paired global_id's
-    a <- site[site$new_id == list.1[1],]
-    b <- site[site$new_id == list.1[2],]
-
-    #Calculating distance
-    list.1[3] <- dist(rbind(c(a$x,a$y), c(b$x,b$y)), method = "euclidean")
-
-    #determining if they are on the same transect
-    list.1[4] <- case_when(a$transect_orientation == b$transect_orientation ~ 1,
-                           a$transect_orientation != b$transect_orientation ~ 0)
-
-    #Group size comparisons
-    list.1[5] <- abs(diff(c(a$number_seedlings_in_group,b$number_seedlings_in_group)))
-    list.1[6] <- abs(diff(c(a$number_vegetative_in_group,b$number_vegetative_in_group)))
-    list.1[7] <- abs(diff(c(a$number_reproductive_in_group,b$number_reproductive_in_group)))
-    
-    #Comparing if the 'direction_from_transect' variable was swapped earlier
-    #attempts to correct for potential recorder error
-    #could change to a calculation to make weighting the probability score easier
-    list.1[8] <- as.numeric(a$swapped_dir) + as.numeric(b$swapped_dir)
-    list.1[9] <- case_when(str_detect(a$direction_to_group, pattern = "NA") &
-                            str_detect(b$direction_to_group, pattern = "NA") ~ 2,
-                           xor(str_detect(a$direction_to_group, pattern = "NA"), 
-                            str_detect(b$direction_to_group, pattern = "NA")) ~ 1,
-                            TRUE ~ 0)
-     return(list.1)
-  })
-  
-all.fram <- do.call(rbind, list) %>%
-  as.data.frame() %>%
-  filter(V3 < 1)
-```
-
-
-
-Looks like EW 291 matches NS 340 when EW 291 IS NOT swapped but NS 340 IS swapped     
-Looks like EW 290 matches NS 
-
-
-```{r}
-#This is just testing some things out, safe to ignore 
-test.fram <- dup.fun(filter(fram_1, zoned == 1), distance = 0.25, cluster = 5)
-
-filter(test.fram, swapped_dir == 0)$discrepency %>% 
-  hist(labels = TRUE)
-
-nrow(filter(test.fram, discrepency < 0.5))
-
-sapply(seq(0,1,0.05), function(i){
-  nrow(filter(test.fram,  swapped_dir == 0 & discrepency < i))
-})
-
-umdo.fun(fram_1, swap = FALSE)
-umdo.fun(fram_1, swap = TRUE)
-
-
-  # filter(test.fram, distance <8, discrepency <1)$distance %>% 
-  # hist( breaks = 30)
-```
-
 
 ```{r}
 # umarked.picnic <- umdo.fun(picnic_1, swap = TRUE, d = 1, c = 5)
@@ -807,21 +713,31 @@ library(RMark)
 picnic_1 %>%
   filter(zoned == 1 & swapped_dir == 0)
 
-# only zoned
+# only zoned, still some repeated object_ids
 pic1Dups <- dup.fun(picnic_1[picnic_1$zoned == 1,], Tdistance = 1)
+pic1Dups %>%
+  group_by(object_id) %>%
+  summarise(n = n()) 
 
-## Not only 32 plants!!! where's the other ones?
+pic1Dups %>%
+  filter(object_id %in% c(31, 109, 110, 115, 193, 200)) %>%
+  arrange(object_id)
+
 x <- pic1Dups %>%
+  # filter(!is.na(objectID)) %>% ## until I can fix this??
   mutate(dh = 1) %>%
   complete(transect_orientation, dupID, 
            fill = list(dh=0)) %>%
   pivot_wider(id_cols = dupID, values_from = dh, names_from = transect_orientation) %>%  
   unite(ch, EW:NS, sep="") 
 
+## Only 84 total? 
 x %>%
-  filter(ch == "11")
-
-## 13 observed by both
+  filter(ch == "11")  ## 13 observed by both
+x %>%
+  filter(ch != "11")  ## 71 by only one
+x %>%
+  filter(nchar(ch) != 2) ## none
 
 setwd("C:/Users/deprengm/OneDrive - Denver Botanic Gardens/P drive/hackathon/ScleroDistanceSampling")
 x %>%
@@ -833,7 +749,7 @@ scglClosed.inp <- convert.inp("Data/Closed.inp",
                               covariates = NULL,
                               use.comments = FALSE)
 
-M <- nrow(x) ## 81 unique observations
+M <- nrow(x) ## (81) now 84 unique observations
 clusterSize <- 1.58
 
 ## EW then NS
@@ -850,11 +766,18 @@ closedshared <- mark(data = Cproc, Cddl, model.parameters =
 get.real(closed, "p", se = TRUE)
 get.real(closed, "f0", se = TRUE)
 get.real(closedshared, "p", se = TRUE)
+get.real(closedshared, "f0", se = TRUE) ## 93.72
+out <- get.real(closedshared, "f0", se = TRUE)
+out$estimate
 
-
-
+## old: 121.98 (56.5 - 263.3) as the 95% CI of individuals never seen
+(out$estimate+M)*clusterSize
+(out$lcl + M)*clusterSize
+(out$ucl + M)*clusterSize
 
 ```
+I have lost 7 plants but otherwise very close!!
+
 
 ## MRDS  
 ```{r}
@@ -864,6 +787,7 @@ library(mrds)
 picnic.data1 <- pic1Dups %>%
   ## rename distance_to_group to distance
   rename(distance = distance_to_group) %>%
+  mutate(distance = abs(distance)) %>%
   mutate(detected = 1) %>%
   rename("object" = dupID) %>%
   rename("observer" = transect_orientation) %>%
