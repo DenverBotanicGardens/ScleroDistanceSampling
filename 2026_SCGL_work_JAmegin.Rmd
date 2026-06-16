@@ -478,6 +478,7 @@ I have lost 7 plants but otherwise very close!!
 library(mrds)
 
 picnic.data1 <- pic1Dups %>%
+  filter(!(object_id %in% c(31,110,193,109, 115, 200) & is.na(swapped))) %>%
   ## rename distance_to_group to distance
   rename(distance = distance_to_group) %>%
   mutate(distance = abs(distance)) %>%
@@ -586,10 +587,12 @@ plot(fi.mr.dist.swap)
 
 ```
 
-
+From AnalysisCrossedDS.Rmd
 ```{r}
 
 ## Scale the abundance by the detection rate
+# 2244 (1877 - 2632)
+
 
 ```
 
