@@ -159,63 +159,6 @@ Covariates affecting probability:
 
 -   within/out the crossed area
 
-function to apply comparison to each object_id pair by referencing the fram_1 table Needs
-to use the combn() pairs and parse the fram_1 table and then compare the covariates to
-evaluate a probability score
-```{r}
-## testing
-str(picnic_1)
-
-site <- picnic_1[picnic_1$zoned == 1,]
-Tdistance <- 1
-# Tcluster <- 12
-# TS <- 5
-# TV <- 2
-# TR <- 1
-
-## doesn't also have the reverse
-# foo <- utils::combn(1:3, m = 2, simplify = FALSE)
-# do.call(rbind,foo)
-# ## expand.grid does give both 1 2 and 2 1
-# foo1 <- expand.grid(x = 1:3, y = 1:3)
-# foo1
-
-## Works to get down to one or the other swapped for each plant
- # foo <- data.frame(objectID = sample(1:10, 100, replace = TRUE),
- #                   swapped = rbinom(100,1,prob = 0.1))
- # 
- # foo %>%
- #   group_by(objectID, swapped) %>%
- #   summarise(n = n())
- # 
- # foo2 <- foo %>%
- #   group_by(objectID) %>%
- #   arrange(desc(swapped)) %>%
- #   filter(row_number() == 1) %>%
- #   ungroup() %>%
- #   arrange(objectID)
-
-data.frame(do.call(rbind,list)) %>%
-  group_by(X1 == X8, X10) %>% # SwapMe for a, the first, the transect of the first
-  summarise(n = n())  ### 11 times the first was swapped, all from NS
-
-data.frame(do.call(rbind,list)) %>%
-  group_by(X2 == X9, X11) %>% # SwapMe for a, the first
-  summarise(n = n())  ### 4 times the second was swapped, all from NS
-
-## if 10 are duplicate observations, then 81 groups, 20 from NS, 71 from EW
-site %>%
-  filter(swapped_dir == 0 &
-           zoned == 1) %>%
-  group_by(transect_orientation) %>%
-  summarise(n = n())
-
-## Already only the zoned ones; still has all the swapped, need to remove
-siteout %>%
-  group_by(transect_orientation, swapped_dir) %>%
-  summarise(n = n())
-```
-
 
 ```{r}
 ###Custom Function 1
@@ -265,11 +208,6 @@ dup.fun <- function(site, Tdistance = 1){ # , Tcluster = 12, TS = 8, TV = 2, TR 
         SwapMe <- "a_b"
       }
       
-    # } else {
-    #   list.1[3] <- dist(rbind(c(a$x,a$y), c(b$x,b$y)), method = "euclidean")
-    #   SwapMe <- "a_b"
-    # }
-                           
 
     #determining if they are on the same transect
     ## same == 1, different == 0
@@ -348,155 +286,6 @@ dup.fun <- function(site, Tdistance = 1){ # , Tcluster = 12, TS = 8, TV = 2, TR 
 }
 
 ```
-
-```{r}
-site %>%
-  group_by(object_id) %>%
-  summarise(n = n()) ## 91
-
-siteout %>%
-  group_by(object_id) %>%
-  summarise(n = n())  # 45
-
-# objectID should match object_id once merged
-df_long %>%
-  group_by(objectID) %>%
-  summarise(n = n()) %>%
-  filter(n != 1)
-
-## Should be only duplicate observations, means there are 14 duplicates when you swap the direction from the transect of 8 of the NS observations. But there were 10 before when you didn't swap sides of any. 
-df_long %>%
-  group_by(swapped, orientation) %>%
-  summarise(n = n())
-
-## Only 6 swapped?
-siteout %>%
-  group_by(swapped, transect_orientation) %>%
-  summarise(n = n())
-
-## 13 duplicate observations
-siteout %>%
-  group_by(dupID) %>%
-  summarise(n = n()) %>%
-  filter(n > 1) ## 13 duplicates
-
-# do we only have either the swapped or the original of each object ID?
-## Yes, probably because only in some comparisons is the swapped picked -- fixed with distanceBetween == min()
-# Now no!
-siteout %>%
-  group_by(object_id) %>%
-  summarise(n = n()) %>%
-  filter(n > 1)
-
-## Why is objectID different?
-siteout %>%
-  filter(object_id == 109) %>%
-  select(object_id, distance_to_group, swapped_dir, distanceBetween, dupID, id1, id2, objectID)
-
-## How often did it swap? Not very often!
-data.frame(do.call(rbind, list)) %>%
-  mutate(SwappedAorB = case_when((X1 != X8 & X2 == X9) ~ "a1",
-                                 (X2 != X9 & X1 == X8) ~ "b1",
-                                 (X1 != X8 & X2 != X9) ~ "a1b1",
-                                 TRUE ~ "original")) %>%
-  group_by(SwappedAorB) %>%
-  summarise(n = n())
-
-
-
-data.frame(do.call(rbind, list)) %>%
-  filter(is.na(X3))
-
-picnic_1 %>%
-  filter(swapped_dir == 0) %>%
-  ggplot( aes(x,y, color = transect_orientation)) +
-    geom_point()
-
-```
-
-
-```{r}
-####Custom Function 2
-#checking for observations that have multiple duplicates & then filtering down to 'most likely'
-## If discrepancy is over 1, then for sure isn't a duplicate! Filters down to the ones that 'could' be 
-## fixed_tolerance == 1: cluster size and distance is under tolerance, 0: over tolerance
-## add a fixed_tolerance for just distance
-dup.fun.1 <-
-  function(site){
-  df <- filter(site, discrepency <1 & orientation == 0) #filter to possible dupes, removed known not duplicates
-  id <- c(df$id_1, df$id_2) #vector of all id's that are associated with duplicated observations
-  if (sum(duplicated(id)) != 0){
-    dup.id <- unique(id[duplicated(id)])
-    id.1 <- #function to find the multiples that are NOT the most likely
-    lapply(dup.id, function(i){
-        df.1 <- filter(df, id_1 == i | id_2 == i)
-        df.2 <- filter(df.1, discrepency != min(discrepency))$dup_id
-        df.2
-    })
-    df[-which(df$dup_id %in% unlist(id.1)),]}
-  else{df} 
-}
-
-###Custom Function 3
-# Getting the numbers needed for the unmakred package: Unmakred dulicate observation function
-# This function calculates the number of observations made by each observer (different transect directions) 
-# alongside the number of observations said to be duplicates based on the earlier dup.fun function
-# and outputs a named list
-## Filters to the minimum discrepancy score
-
-# Use only original or also swapped: swap is true and false (use swapped or not)
-# 
-umdo.fun <- 
-function(site, swap, d, c){
-  #allows choice of using the cloned/mirrored observations for checking errors
-  if(swap == FALSE){ 
-  site.1 <- filter(site, swapped_dir == 0 & zoned == 1) # only the zoned ones
-  site.ew <- filter(site.1, transect_orientation == "EW")
-  site.ns <- filter(site.1, transect_orientation == "NS")
-  site.1d <- dup.fun(site.1, distance = d, cluster = c)
-  #getting the numbers of duplicates for both the discrepancy score & fixed tolerance 
-  #analysis allows for comparison between methods
-  site.score <- dup.fun.1(filter(site.1d, discrepency < 1))
-  site.fixed <- dup.fun.1(filter(site.1d, fixed_tolerance == 1))
-  # site.fdistance <- 
-  
-  
-  list <- list("EW" = nrow(site.ew), 
-               "NS" = nrow(site.ns),
-               "scored" = nrow(site.score),
-               "fixed" = nrow(site.fixed))
-  }else{
-  site.1 <- filter(site, zoned == 1)
-  site.ew <- filter(site.1, transect_orientation == "EW" & swapped_dir == 0)
-  site.ns <- filter(site.1, transect_orientation == "NS" & swapped_dir == 0)
-  site.1d <- dup.fun(site.1, distance = d, cluster = c)
-  #getting the numbers of duplicates for both the discrepency score & fixed tolerance 
-  #analysis allows for comparison between methods
-  site.score <-   dup.fun.1(filter(site.1d, discrepency < 1 & swapped_dir == 0)) # neither swapped
-  site.score.1 <- dup.fun.1(filter(site.1d, discrepency < 1 & swapped_dir < 2)) # one swapped
-  site.score.2 <- dup.fun.1(filter(site.1d, discrepency < 1 & swapped_dir <= 2)) # two or one swapped
-  site.fixed <-   dup.fun.1(filter(site.1d, fixed_tolerance == 1 & swapped_dir == 0))
-  site.fixed.1 <- dup.fun.1(filter(site.1d, fixed_tolerance == 1 & swapped_dir < 2))
-  site.fixed.2 <- dup.fun.1(filter(site.1d, fixed_tolerance == 1 & swapped_dir <= 2))
-  ## and fixed distance
-  
-  
-  list <- list("EW" = nrow(site.ew), 
-               "NS" = nrow(site.ns),
-               "scored" = nrow(site.score),
-               "scored swap 1" = nrow(site.score.1),
-               "scored swap 2" = nrow(site.score.2),
-               "fixed" = nrow(site.fixed),
-               "fixed swap 1" = nrow(site.fixed.1),
-               "fixed swap 2" = nrow(site.fixed.2))
-  }
-  return(list)
-}
-
-
-```
-
-
 
 ##Fram
 
@@ -578,11 +367,6 @@ ggplot(  aes(x,y) ) +
                                  color = transect_orientation),
              size = 4) +
   geom_segment(data = fram_lines, aes(x = x, y = y, xend = xend, yend = yend)) +
-   # geom_text(data = fram_lines, 
-   #          aes( label = label),
-   #          nudge_x = 4,
-   #          size = 2,
-   #          ) +
     scale_shape_manual(values = c(16,1)) +
     xlim(c(-16.9,-23.1)) +
     ylim(c(46.9,53.1)) +
@@ -600,94 +384,9 @@ fram_1 %>%
   filter(x > -23.1 & x < -16.9 &
            y > 46.9 & y < 53.1) %>%
   bind_rows(fram_1) %>%
-  mutate()
   dplyr::select(x, y, object_id, transect_orientation, swapped_dir, number_reproductive_in_group, number_vegetative_in_group) %>%
   arrange(x, y)
   
-```
-
-
-```{r}
-# umarked.picnic <- umdo.fun(picnic_1, swap = TRUE, d = 1, c = 5)
-
-# [[1]]: the input site with the unique ID (new_id) added and the duplicates identified according to fixed distance, fixed distance and cluster size cutoffs, and rbinom for discrepency scores under 1 (over 1 considered not a duplicate)
-# [[2]]: the data frame of paired comparisons
-# [[3]]: the data frame in long form with unique values (instead of comparison of 1 vs 2 and 2 vs 1 in the wide data frame)
-pic1Dups <- dup.fun(picnic_1[picnic_1$zoned == 1,], distance = 1, cluster = 4, TS = 8, TV = 3, TR = 2)
-pic1Dups_821 <- dup.fun(picnic_1[picnic_1$zoned == 1,], distance = 0.5, cluster = 10, TS = 8, TV = 2, TR = 1)
-## Higher discrepancy score == less likely to be a duplicate. Lower discrepancy score (approaching zero) == more likely duplicate
-# #4 "orientation" 1 == same transect, 0 == different transect orientation
-# #5 "diff_seedlings" diff seedlings; #6 diff veg; #7 diff repro
-# #10 is a sum of how much distance is less than threshold +
-#                 how much seedling + veg + rep is less than threshold
-
-# Only slightly lower discrepancy score for those on different grid lines. Not surprising 
-### 1 == same transect (known NOT duplicates)
-### 0 == different transects (possible duplicates)
-pic1Dups[[2]] %>% 
-  filter(fixed_tolerance == 1) %>%
-  ggplot(  aes(discrepency, fill = as.factor(same_diff)))+
-    geom_density(alpha = 0.5) +
-    theme_bw() 
-
-pic1Dups[[2]] %>% 
-  filter(fixed_disttolerance == 1) %>%
-  ggplot(  aes(discrepency, fill = as.factor(same_diff)))+
-    geom_density(alpha = 0.5) +
-    theme_bw() 
-
-# distance and cluster size
-pic1Dups_821[[2]] %>% 
-  filter(fixed_tolerance == 1) %>%
-  ggplot(  aes(discrepency, fill = as.factor(same_diff)))+
-    geom_density(alpha = 0.5) +
-    theme_bw()
-
-pic1Dups[[2]] %>%
-  rowwise() %>%
-  mutate(discrepYN = rbinom(1,1, prob = discrepency)) %>%
-  filter(discrepYN == 0) %>%
-  ggplot(  aes(discrepency, fill = as.factor(same_diff)))+
-    geom_density(alpha = 0.5) +
-    theme_bw()
-
-pic1Dups[[2]] %>%
-  filter(discrepency < 1)
-## 
-pic1Dups[[2]] %>%
-  filter(discrepency < 1) %>%
-  rowwise() %>%
-  mutate(discrepYN = rbinom(1,1, prob = discrepency)) %>%
-  # filter(same_diff == 0) %>%
-  ggplot(  aes(distance, discrepYN, color = as.factor(same_diff))) +
-    geom_point(pch = "|")+
-    stat_smooth(method="glm",  method.args = list(family = "binomial"), se=TRUE) +
-    theme_bw() +
-    scale_color_discrete("Transect", labels = c("Possible duplicates","Known NON-duplicates"))
-
-pic1Dups[[2]] %>%
-  filter(discrepency < 1) %>%
-  rowwise() %>%
-  mutate(discrepYN = rbinom(1,1, prob = discrepency)) %>%
-  # filter(same_diff == 0) %>%
-  ggplot(  aes(distance, discrepYN, color = as.factor(same_diff))) +
-    geom_point(pch = "|")+
-    stat_smooth(method="glm",  method.args = list(family = "binomial"), se=TRUE) +
-    theme_bw() +
-    scale_color_discrete("Transect", labels = c("Possible duplicates","Known NON-duplicates"))
-
-## Zero are the duplicates
-pic1Dups[[2]] %>%
-  filter(discrepency < 1) %>%
-  rowwise() %>%
-  mutate(discrepYN = rbinom(1,1, prob = discrepency)) %>%
-  filter(same_diff == 0) %>%
-  ggplot(  aes(distance, diff_reproductive)) +
-    geom_point()+
-    theme_bw() +
-    facet_wrap(~ discrepYN)
-
-
 ```
 
 ids are duplicated in picnic_1 for the original and the swapped  
@@ -696,12 +395,6 @@ group_by plant Id and only keep the one with the closer distance (if within the 
     case_when pair with other transect is closer and < 1 meter ~ keep this one
     case_when pair has neither swapped or original within 1 meter, keep original
     case_when direction_to_group was NA, keep the one with a closer distance to another one?? | if none within 1 meter, keep one at random. 
-```{r}
-picnic_1 %>%
-  ggplot(  aes(object_id)) +
-    geom_histogram(stat = "count") +
-    facet_wrap(~ swapped_dir)
-```
 
 
 Mark-Recapture   
@@ -894,24 +587,61 @@ plot(fi.mr.dist.swap)
 ```
 
 
-2026.06.01 Michelle DePrenger-Levin additions from Hamilton et al. 2017   
-inverse logit
 ```{r}
-## Then repeat by swapping EW and NS? As trial - different form fully independent
-## x == distance
-## s == group size
 
-# Probability of EW detection 
-y_EW <- exp(alpha1 + beta1*x + gamma1*(x*x) + delta1*s + epsilon1*x*s) / 
-          (exp(alpha1 + beta1*x + gamma1*(x*x) + delta1*s + epsilon1*x*s)+1)
+## Scale the abundance by the detection rate
 
-# Probability of detection by NS conditional on non-detection of EW 
-y_EW_notNS <-  exp(alpha2 + beta2*x + gamma2*(x*x) + delta2*s + epsilon2*x*s) / 
-          (exp(alpha2 + beta2*x + gamma2*(x*x) + delta2*s + epsilon2*x*s)+1)
+```
 
-# Probability of detection by NS conditional on detection by EW (duplicates)
-y_EW_NS <-  exp(alpha3 + beta3*x + gamma3*(x*x) + delta3*s + epsilon3*x*s) / 
-          (exp(alpha3 + beta3*x + gamma3*(x*x) + delta3*s + epsilon3*x*s)+1)
+Distance for CV 
+
+```{r}
+library(Distance)
+
+picnic.region <- data.frame(Region.Label = c("EW","NS"), 
+                            Area = 7802)
+picnic.units <- data.frame(Variable = c("Area","Effort","distance"),
+                           Units = c("square kilometre", "meter","meter"),
+                           conversion = c(0.000001, 1, 1))
+
+picnic.samples <- pic1Dups %>%
+  filter(!(object_id %in% c(31,110,193,109, 115,200) & is.na(swapped))) %>%
+  distinct(transect_number, transect_orientation, transect_length, object_id, distance_to_group) %>%
+  rowwise() %>%
+  mutate(Sample.Label = paste0(transect_number,transect_orientation)) %>%
+  ungroup() %>%
+  mutate(Region.Label = transect_orientation) %>%
+  rename("Effort" = "transect_length") %>%
+  # dplyr::select(Sample.Label, Region.Label, Effort) %>%
+  mutate(Effort = case_when(Sample.Label == "1EW" ~ 70,
+                            TRUE ~ Effort)) %>%
+  filter(!is.na(Effort)) %>%
+  arrange(Sample.Label) %>%
+  mutate(Area = 7802) %>%
+  rename(distance = distance_to_group) %>%
+  rename(object = object_id) %>%
+  dplyr::select(Region.Label, Area, Sample.Label, Effort, object, distance) %>%
+  mutate(Study.Area = "Picnic") %>%
+  mutate(distance = abs(distance))
+
+picnic.hn <- ds(data = picnic.samples, key = "hn", convert_units = convert_units("meter","meter","square meter"))
+summary(picnic.hn)
+print(picnic.hn$dht$individuals$D)
+### cv is EW: 0.166; NS: 0.168
+
+cvs <- data.frame(Strata = c("EW","NS","total"), 
+                    meanD = picnic.hn$dht$individuals$D$Estimate,
+                    cvD = picnic.hn$dht$individuals$D$cv)
+
+                    
+
+
+
+pic1Dups %>%
+  filter(!(object_id %in% c(31,110,193,109, 115, 200) & is.na(swapped))) %>%
+  group_by(object_id) %>%
+  summarise(n = n()) %>%
+  filter(n != 1)
 
 
 ```
