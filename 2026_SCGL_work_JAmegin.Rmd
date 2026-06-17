@@ -389,6 +389,63 @@ fram_1 %>%
   
 ```
 
+
+```{r}
+
+# only zoned, still some repeated object_ids
+pic1Dups <- dup.fun(picnic_1[picnic_1$zoned == 1,], Tdistance = 1)
+
+#Graphing the site with duplicated observations marked in blue
+
+pic_lines <- tibble( x = c(-20, -30, -40, -20, -10, -10, 0), 
+                     y = c(20, 10, 0, 20, 30, 40, 50), 
+                     xend = c(-20, -30, -40, -90, -70, -70, -50),
+                     yend = c(60, 76, 50, 20, 30, 40, 50),
+                     label = c("1NS", "2NS", "3NS", "1EW", "2EW", "3EW", "4EW"))
+
+duplicates <- pic1Dups %>%
+  group_by(dupID) %>%
+  filter(n() > 1)
+
+# Select only the swapped when that location was closer
+pic_plot <- pic1Dups %>% 
+  filter(!(object_id %in% c(31,110,193,109, 115, 200) & is.na(swapped))) %>%
+  # filter(zoned ==1 & swapped_dir == 0) %>% 
+  ggplot( mapping = aes(x, y)) +
+  geom_point(data = filter(picnic_1, swapped_dir == 0), aes(x,y), shape = 16, size = 1) +
+  geom_point(aes(color = transect_orientation), shape = 1) +
+  geom_point(data = duplicates, color = "white", size = 0.8) +
+  scale_colour_manual("Orientation", values = c("#1E88E5","#D81B60"))  +
+  geom_segment(data = pic_lines, aes(x = x, y = y, xend = xend, yend = yend)) +
+  theme(
+      axis.line=element_blank(),axis.text.x=element_blank(),
+          axis.text.y=element_blank(),axis.ticks=element_blank(),
+          axis.title.x=element_blank(),
+          axis.title.y=element_blank(),  #legend.position="none",
+      panel.background = element_rect(fill='transparent'), #transparent panel bg
+      plot.background = element_rect(fill='transparent', color=NA), #transparent plot bg
+      panel.grid.major = element_blank(), #remove major gridlines
+      panel.grid.minor = element_blank(), #remove minor gridlines
+      legend.background = element_rect(fill='transparent'), #transparent legend bg
+      legend.box.background = element_rect(fill='transparent') #transparent legend panel
+    ) + 
+  coord_fixed()
+
+# FastUtils::getPlotDims(pic_plot)
+# FastUtils::getPlotDims(pDensity2)
+## See "DesignCoverage_DistanceSampling_sim.Rmd"
+ggsave("C:/Users/deprengm/Denver Botanic Gardens/Conservation - General/AllProjectsBySpecies/Sclerocactus-glaucus/Sclerocactus-glaucus_Manuscripts/DistanceSampling_Images/GraphicalAbstractBase.jpg",
+pDensity2 +
+  annotation_custom(grob = as.grob(pic_plot), xmin = 0.15, xmax = 0.87, ymin = 0.25, ymax = 0.87)
+  ,
+width=150, height=90,units='mm', dpi=300)
+
+
+# pic_plot +
+#   annotation_custom(grob = as.grob(pDensity2))
+```
+
+
 ids are duplicated in picnic_1 for the original and the swapped  
 ## Need to remove all the swapped ones that are not closer. 
 group_by plant Id and only keep the one with the closer distance (if within the threshold) or only keep original.  
@@ -406,8 +463,6 @@ library(RMark)
 picnic_1 %>%
   filter(zoned == 1 & swapped_dir == 0)
 
-# only zoned, still some repeated object_ids
-pic1Dups <- dup.fun(picnic_1[picnic_1$zoned == 1,], Tdistance = 1)
 pic1Dups %>%
   group_by(object_id) %>%
   summarise(n = n()) 
