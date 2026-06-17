@@ -592,6 +592,9 @@ From AnalysisCrossedDS.Rmd
 
 ## Scale the abundance by the detection rate
 # 2244 (1877 - 2632)
+2244/0.5 ## trial.fi
+2244/0.46 ## io.fi
+2244/0.27 ## closed mark-recapture
 
 
 ```
